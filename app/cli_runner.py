@@ -37,12 +37,48 @@ def clean_cli_env(env: dict) -> dict:
     return env
 
 
+def _inject_tokens(env: dict) -> dict:
+    """Injeta tokens salvos (ex.: CLAUDE_CODE_OAUTH_TOKEN) no ambiente do CLI."""
+    providers = load_config().get("providers", {})
+    for pkey, spec in CLI_SPECS.items():
+        token_env = spec.get("token_env")
+        if not token_env:
+            continue
+        token = (providers.get(pkey, {}) or {}).get("token")
+        if token and str(token).strip():
+            env[token_env] = str(token).strip()
+    return env
+
+
 def build_cli_env() -> dict:
     env = clean_cli_env(os.environ.copy())
     extra = _search_paths()
     if extra:
         env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
+    env = _inject_tokens(env)
     return env
+
+
+def save_token(pkey: str, token: str | None) -> dict:
+    """Salva (ou limpa) o token do provedor no cli_config.json."""
+    spec = CLI_SPECS.get(pkey)
+    if not spec:
+        return {"ok": False, "message": "Provedor desconhecido"}
+    if not spec.get("token_env"):
+        return {"ok": False, "message": "Este provedor não usa token."}
+
+    cfg = load_config()
+    providers = cfg.setdefault("providers", {})
+    prov = providers.setdefault(pkey, {})
+    token = (token or "").strip()
+    if token:
+        prov["token"] = token
+        msg = "Token salvo. Clique em Testar."
+    else:
+        prov.pop("token", None)
+        msg = "Token removido."
+    save_config(cfg)
+    return {"ok": True, "message": msg, "has_token": bool(token)}
 
 
 def _in_docker() -> bool:
@@ -114,7 +150,7 @@ def _build_ping_argv(pkey: str, cmd: str, prompt: str) -> list[str]:
     if pkey == "gpt":
         return [cmd, "exec", "--skip-git-repo-check", prompt]
     if pkey == "gemini":
-        return [cmd, "-p", prompt, "--yolo", "--skip-trust", "--approval-mode", "plan"]
+        return [cmd, "-p", prompt, "--approval-mode", "yolo", "--skip-trust"]
     if pkey == "deepseek":
         return [cmd, "-p", prompt]
     return [cmd, "-p", prompt]
@@ -135,7 +171,7 @@ def _build_run_argv(pkey: str, cmd: str, system: str, user_prompt: str, model: s
         return argv
     if pkey == "gemini":
         combined = f"{system}\n\n{user_prompt}"
-        argv = [cmd, "-p", combined, "--yolo", "--skip-trust", "--approval-mode", "plan"]
+        argv = [cmd, "-p", combined, "--approval-mode", "yolo", "--skip-trust"]
         if model:
             argv.extend(["-m", model])
         return argv
@@ -217,6 +253,9 @@ async def provider_status(pkey: str, *, ping: bool = False) -> dict:
         "auth_help": spec["auth_help"],
         "enabled": cfg.get("enabled", True),
         "in_docker": _in_docker(),
+        "supports_token": bool(spec.get("token_env")),
+        "token_hint": spec.get("token_hint"),
+        "has_token": bool((cfg.get("token") or "").strip()),
     }
 
     if not path:

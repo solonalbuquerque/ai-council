@@ -258,5 +258,10 @@ input, select, textarea { font-family: inherit; }
 .cli-response .k { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted-2); display: block; margin-bottom: 4px; }
 .cli-response .txt { white-space: pre-wrap; word-break: break-word; color: var(--text); }
 .cli-response pre.raw { font-size: 10px; color: var(--muted); margin: 8px 0 0; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+.cli-token { margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); }
+.cli-token label.k { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted-2); display: block; margin-bottom: 6px; }
+.cli-token .token-saved { color: var(--ok); text-transform: none; letter-spacing: 0; margin-left: 6px; }
+.token-input-row { display: flex; gap: 8px; }
+.token-input { flex: 1; min-width: 0; padding: 6px 8px; font-family: inherit; font-size: 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
 .cli-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .warnbox.okbox { background: color-mix(in srgb, var(--ok) 10%, var(--panel)); border-color: var(--ok); }

@@ -36,6 +36,20 @@ function testResultHtml(r) {
 function setLoginBtnVisible(pkey, visible) {
   const btn = document.querySelector(`[data-act="login"][data-key="${pkey}"]`);
   if (btn) btn.style.display = visible ? "" : "none";
+  const row = $(`token-row-${pkey}`);
+  if (row && visible) row.style.display = "block";
+}
+
+function tokenRowHtml(p, show) {
+  const placeholder = p.token_hint || "Cole o token aqui e clique em Salvar";
+  const savedNote = p.has_token ? '<span class="token-saved">Token salvo</span>' : "";
+  return `<div class="cli-token" id="token-row-${p.pkey}" style="display:${show || p.has_token ? "block" : "none"}">
+      <label class="k">Token de autenticação ${savedNote}</label>
+      <div class="token-input-row">
+        <input type="password" class="token-input" id="token-${p.pkey}" placeholder="${esc(placeholder)}" autocomplete="off" />
+        <button class="btn" data-act="save-token" data-key="${p.pkey}">Salvar</button>
+      </div>
+    </div>`;
 }
 
 function applyTestToCard(pkey, r) {
@@ -123,6 +137,7 @@ function makeCard(p) {
     <div class="cli-auth note">${esc(p.auth_help || "")}</div>
     <div class="cli-install note">Instalar: <code>${esc(p.install || "")}</code></div>
     <div class="cli-response" id="resp-${p.pkey}" style="display:${state.lastTests[p.pkey] ? "block" : "none"}"></div>
+    ${p.supports_token ? tokenRowHtml(p, showLogin) : ""}
     <div class="cli-actions">
       <button class="btn" data-act="install" data-key="${p.pkey}" title="${esc(installTitle)}">${esc(installLabel)}</button>
       <button class="btn" data-act="login" data-key="${p.pkey}" style="display:${showLogin ? "" : "none"}">Fazer login</button>
@@ -132,6 +147,9 @@ function makeCard(p) {
   card.querySelector('[data-act="install"]').onclick = () => installCli(p.pkey);
   card.querySelector('[data-act="test"]').onclick = () => testCli(p.pkey);
   card.querySelector('[data-act="login"]').onclick = () => loginCli(p.pkey);
+  if (p.supports_token) {
+    card.querySelector('[data-act="save-token"]').onclick = () => saveToken(p.pkey);
+  }
   if (state.lastTests[p.pkey]) applyTestToCard(p.pkey, state.lastTests[p.pkey]);
   return card;
 }
@@ -182,6 +200,12 @@ async function loginCli(pkey) {
     if (r.command) {
       html += `<div class="note" style="margin-top:8px">Comando: <code>${esc(r.command)}</code></div>`;
     }
+    const prov = state.providers.find((p) => p.pkey === pkey);
+    if (r.ok && prov && prov.supports_token) {
+      html += `<div class="note" style="margin-top:8px">Copie o token <code>sk-ant-oat01-…</code> que aparece no terminal, cole no campo abaixo e clique em Salvar.</div>`;
+      const row = $(`token-row-${pkey}`);
+      if (row) row.style.display = "block";
+    }
     respBox.innerHTML = html;
   } catch (e) {
     respBox.style.display = "block";
@@ -190,6 +214,35 @@ async function loginCli(pkey) {
   } finally {
     btn.disabled = false;
     btn.textContent = "Fazer login";
+  }
+}
+
+async function saveToken(pkey) {
+  const input = $(`token-${pkey}`);
+  const btn = document.querySelector(`[data-act="save-token"][data-key="${pkey}"]`);
+  const token = (input.value || "").trim();
+  btn.disabled = true;
+  btn.textContent = "Salvando…";
+  try {
+    const r = await api(`/api/cli/token/${pkey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    input.value = "";
+    const respBox = $(`resp-${pkey}`);
+    respBox.style.display = "block";
+    respBox.className = "cli-response ok";
+    respBox.innerHTML = `<span class="k">Token</span><div class="txt">${esc(r.message)}</div>`;
+    if (r.ok && token) await testCli(pkey);
+  } catch (e) {
+    const respBox = $(`resp-${pkey}`);
+    respBox.style.display = "block";
+    respBox.className = "cli-response bad";
+    respBox.innerHTML = `<span class="k">Erro</span><div class="txt">${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Salvar";
   }
 }
 

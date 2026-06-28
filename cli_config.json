@@ -1,5 +1,9 @@
 {
   "prefer_cli": true,
   "extra_paths": [],
-  "providers": {}
+  "providers": {
+    "claude": {
+      "token": "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"
+    }
+  }
 }
