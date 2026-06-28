@@ -17,6 +17,7 @@
     <span class="conn" id="status-txt">ocioso</span>
     <div class="spacer"></div>
     <span class="conn" id="conn">●&nbsp; conectando</span>
+    <button class="btn ghost" id="agents-btn">Agentes</button>
     <a class="btn ghost" href="/settings">⚙ CLIs</a>
   </header>
 
@@ -119,12 +120,81 @@
       </div>
     </div>
 
-    <h4>Participantes</h4>
+    <h4>Agentes</h4>
+    <div class="sub" style="margin-top:-8px;margin-bottom:10px;">Selecione personas da biblioteca e escolha qual CLI/modelo encarna cada uma.</div>
+    <div id="conv-agents"></div>
+    <div id="no-agents" class="warnbox" style="display:none;">
+      Nenhum agente na biblioteca. <button type="button" class="btn ghost" id="open-agents-from-conv" style="margin-left:8px;padding:4px 10px;">Abrir Agentes</button>
+    </div>
+
+    <h4>Participantes ad-hoc</h4>
+    <div class="sub" style="margin-top:-8px;margin-bottom:10px;">Ou ative provedores diretamente, sem persona da biblioteca.</div>
     <div id="participants"></div>
 
     <div class="actions">
       <button class="btn ghost" id="modal-cancel">Cancelar</button>
       <button class="btn primary" id="modal-create">Criar e abrir</button>
+    </div>
+  </div>
+</div>
+
+<!-- modal: agentes -->
+<div class="modal-bg" id="agents-modal-bg">
+  <div class="modal modal-lg agents-modal">
+    <div class="agents-head">
+      <div>
+        <h2>Agentes</h2>
+        <div class="sub">Biblioteca de personas reutilizáveis. Adicione pela lista, URL ou criação manual.</div>
+      </div>
+      <button class="btn ghost" id="agents-close">Fechar</button>
+    </div>
+
+    <div class="agents-layout">
+      <section class="agents-saved">
+        <h4>Salvos</h4>
+        <div id="agents-list" class="agents-list"></div>
+      </section>
+
+      <section class="agents-add">
+        <div class="tabs" id="agents-tabs">
+          <button type="button" class="tab active" data-tab="preset">Pré-carregados</button>
+          <button type="button" class="tab" data-tab="url">Importar URL</button>
+          <button type="button" class="tab" data-tab="manual">Criar manual</button>
+        </div>
+
+        <div class="tab-panel active" id="tab-preset">
+          <div class="sub">Clique para adicionar à biblioteca (presets que ainda não existem).</div>
+          <div id="agents-presets" class="preset-grid"></div>
+        </div>
+
+        <div class="tab-panel" id="tab-url">
+          <div class="row" style="grid-template-columns:1fr auto;">
+            <div>
+              <label>URL</label>
+              <input type="text" id="agent-url" placeholder="https://github.com/.../SKILL.md ou outra URL com descrição" />
+            </div>
+            <div style="align-self:end;">
+              <button class="btn" id="agent-url-fetch">Buscar</button>
+            </div>
+          </div>
+          <div id="agent-url-preview" class="agent-preview" style="display:none;">
+            <div class="row"><label>Nome</label><input type="text" id="agent-url-name" /></div>
+            <div class="row" style="align-items:start;"><label>Descrição</label><textarea id="agent-url-desc"></textarea></div>
+            <div class="actions" style="margin-top:12px;">
+              <button class="btn primary" id="agent-url-save">Salvar agente</button>
+            </div>
+          </div>
+          <div id="agent-url-msg" class="note"></div>
+        </div>
+
+        <div class="tab-panel" id="tab-manual">
+          <div class="row"><label>Nome</label><input type="text" id="agent-manual-name" placeholder="Ex.: Revisor de código" /></div>
+          <div class="row" style="align-items:start;"><label>Descrição</label><textarea id="agent-manual-desc" placeholder="Persona completa: papel, tom, foco, restrições…"></textarea></div>
+          <div class="actions" style="margin-top:12px;">
+            <button class="btn primary" id="agent-manual-save">Salvar agente</button>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </div>

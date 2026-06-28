@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import store
+from app.agent_import import import_agent_from_url
+from app.agent_presets import AGENT_PRESETS
 from app.catalog import PROVIDER_CATALOG
 from app.cli_runner import all_statuses, install_provider, launch_login, load_config, save_config, save_token, test_provider
 from app.db import init_db
@@ -26,6 +28,7 @@ WEB = os.path.join(ROOT, "web")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await store.seed_agents()
     app.state.mcp = None
     try:
         cfg = os.path.join(ROOT, "mcp_servers.json")
@@ -134,6 +137,43 @@ async def cli_config_update(payload: dict):
         cfg["providers"] = {**cfg.get("providers", {}), **payload["providers"]}
     save_config(cfg)
     return {"ok": True, "config": cfg}
+
+
+@app.get("/api/agents/presets")
+async def agents_presets():
+    return {"presets": AGENT_PRESETS}
+
+
+@app.get("/api/agents")
+async def list_agents():
+    return await store.list_agents()
+
+
+@app.post("/api/agents")
+async def create_agent(payload: dict):
+    try:
+        return await store.create_agent(payload)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.delete("/api/agents/{agent_id}")
+async def delete_agent(agent_id: str):
+    ok = await store.delete_agent(agent_id)
+    if not ok:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"ok": True}
+
+
+@app.post("/api/agents/import-url")
+async def import_agent_url(payload: dict | None = None):
+    url = (payload or {}).get("url", "").strip()
+    try:
+        return await import_agent_from_url(url)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": f"Falha ao importar: {e}"}, status_code=502)
 
 
 @app.post("/api/conversations")

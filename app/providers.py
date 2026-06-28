@@ -178,20 +178,26 @@ class CLIProvider(Provider):
 
 
 # ---- fábrica ----
+def _provider_key(pkey: str) -> str:
+    """Extrai o provedor base de pkeys compostos (ex.: claude:abc123)."""
+    return pkey.split(":", 1)[0] if ":" in pkey else pkey
+
+
 def make_provider(pkey: str, model: str) -> Provider | None:
-    if cli_available(pkey):
+    base = _provider_key(pkey)
+    if cli_available(base):
         labels = {"claude": "Claude", "gpt": "ChatGPT", "gemini": "Gemini", "deepseek": "DeepSeek"}
-        return CLIProvider(pkey, labels.get(pkey, pkey), model)
-    if pkey == "claude" and os.getenv("ANTHROPIC_API_KEY"):
+        return CLIProvider(base, labels.get(base, base), model)
+    if base == "claude" and os.getenv("ANTHROPIC_API_KEY"):
         return AnthropicProvider("claude", "Claude", model, os.environ["ANTHROPIC_API_KEY"])
-    if pkey == "gpt" and os.getenv("OPENAI_API_KEY"):
+    if base == "gpt" and os.getenv("OPENAI_API_KEY"):
         return OpenAICompatProvider(
             "gpt", "ChatGPT", model, os.environ["OPENAI_API_KEY"], "https://api.openai.com/v1")
-    if pkey == "gemini" and os.getenv("GEMINI_API_KEY"):
+    if base == "gemini" and os.getenv("GEMINI_API_KEY"):
         return OpenAICompatProvider(
             "gemini", "Gemini", model, os.environ["GEMINI_API_KEY"],
             "https://generativelanguage.googleapis.com/v1beta/openai/")
-    if pkey == "deepseek" and os.getenv("DEEPSEEK_API_KEY"):
+    if base == "deepseek" and os.getenv("DEEPSEEK_API_KEY"):
         return OpenAICompatProvider(
             "deepseek", "DeepSeek", model, os.environ["DEEPSEEK_API_KEY"], "https://api.deepseek.com")
     return None

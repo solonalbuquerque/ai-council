@@ -2,7 +2,87 @@
 from sqlalchemy import func, select
 
 from app import models
+from app.agent_presets import AGENT_PRESETS
 from app.db import Session
+
+
+def _agent(a: models.Agent) -> dict:
+    return {
+        "id": a.id,
+        "name": a.name,
+        "description": a.description,
+        "source": a.source,
+        "source_url": a.source_url,
+        "created_at": a.created_at.isoformat(),
+    }
+
+
+async def seed_agents():
+    """Insere presets ausentes (idempotente por nome)."""
+    async with Session() as s:
+        existing = {
+            row[0]
+            for row in (await s.execute(select(models.Agent.name))).all()
+        }
+        added = False
+        for preset in AGENT_PRESETS:
+            if preset["name"] in existing:
+                continue
+            s.add(models.Agent(
+                name=preset["name"],
+                description=preset["description"],
+                source="preset",
+            ))
+            added = True
+        if added:
+            await s.commit()
+
+
+async def list_agents() -> list[dict]:
+    async with Session() as s:
+        rows = (await s.execute(
+            select(models.Agent).order_by(models.Agent.created_at.desc())
+        )).scalars().all()
+        return [_agent(a) for a in rows]
+
+
+async def get_agent(agent_id: str) -> dict | None:
+    async with Session() as s:
+        a = await s.get(models.Agent, agent_id)
+        return _agent(a) if a else None
+
+
+async def create_agent(payload: dict) -> dict:
+    name = (payload.get("name") or "").strip()
+    description = (payload.get("description") or "").strip()
+    if not name:
+        raise ValueError("Nome do agente é obrigatório.")
+    if not description:
+        raise ValueError("Descrição do agente é obrigatória.")
+    source = (payload.get("source") or "manual").strip() or "manual"
+    source_url = (payload.get("source_url") or "").strip() or None
+
+    async with Session() as s:
+        a = models.Agent(
+            name=name[:120],
+            description=description,
+            source=source[:20],
+            source_url=source_url[:500] if source_url else None,
+        )
+        s.add(a)
+        await s.commit()
+        await s.refresh(a)
+        return _agent(a)
+
+
+async def delete_agent(agent_id: str) -> bool:
+    async with Session() as s:
+        a = await s.get(models.Agent, agent_id)
+        if not a:
+            return False
+        await s.delete(a)
+        await s.commit()
+        return True
 
 
 async def create_conversation(payload: dict) -> str:

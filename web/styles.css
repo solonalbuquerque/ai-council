@@ -279,3 +279,35 @@ input, select, textarea { font-family: inherit; }
 .token-input { flex: 1; min-width: 0; padding: 6px 8px; font-family: inherit; font-size: 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
 .cli-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .warnbox.okbox { background: color-mix(in srgb, var(--ok) 10%, var(--panel)); border-color: var(--ok); }
+
+/* ---------- agentes modal ---------- */
+.modal-lg { width: min(1100px, 96vw); }
+.agents-modal { padding: 24px 26px 28px; }
+.agents-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.agents-layout { display: grid; grid-template-columns: 320px 1fr; gap: 20px; min-height: 420px; }
+@media (max-width: 900px) { .agents-layout { grid-template-columns: 1fr; } }
+.agents-saved h4, .agents-add h4 { margin-top: 0; }
+.agents-list { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow-y: auto; }
+.agent-card {
+  border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; background: var(--panel-2);
+}
+.agent-card.preset:hover { border-color: var(--gemini); background: color-mix(in srgb, var(--gemini) 8%, var(--panel-2)); }
+.agent-card.added { opacity: .55; }
+.agent-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.agent-card-head .nm { font-weight: 700; font-size: 12px; flex: 1; }
+.agent-card-head .src { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted-2); }
+.agent-card-head .agent-del { padding: 4px 8px; font-size: 10px; margin-left: auto; }
+.agent-desc { font-size: 11px; color: var(--muted); line-height: 1.5; white-space: pre-wrap; }
+.preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-height: 360px; overflow-y: auto; }
+@media (max-width: 700px) { .preset-grid { grid-template-columns: 1fr; } }
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.tab {
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+  padding: 7px 12px; border-radius: 7px; font-size: 11px; letter-spacing: .5px;
+}
+.tab.active { color: var(--text); border-color: var(--gemini); background: color-mix(in srgb, var(--gemini) 12%, var(--panel-2)); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.agent-preview { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.agent-conv-card .agent-desc { margin-bottom: 8px; }
+.agent-conv-card .a-config { margin-top: 4px; }

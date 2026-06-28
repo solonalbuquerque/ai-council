@@ -9,12 +9,15 @@ const state = {
   catalog: null,
   available: [],
   toolsAvail: {},
+  agents: [],
+  presets: [],
   cid: null,
   ws: null,
   participants: [],   // da conversa aberta
   seenMsgIds: new Set(),
   scoreboard: {},
   status: "idle",
+  urlImport: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -24,6 +27,31 @@ const fmt = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").repla
 const nf = (n) => (n || 0).toLocaleString("pt-BR");
 const money = (n) => "$" + (n || 0).toFixed(4);
 const PLACEHOLDER_TITLE = "Uma nova conversa";
+const PROVIDER_ORDER = ["claude", "gpt", "gemini", "deepseek"];
+
+function providerColor(key) {
+  const base = (key || "").split(":")[0];
+  return COLORS[base] || "#888";
+}
+
+function providerOptions(selected) {
+  const cat = state.catalog || {};
+  const avail = state.available || [];
+  return PROVIDER_ORDER.filter((k) => cat[k]).map((k) => {
+    const dis = avail.includes(k) ? "" : " disabled";
+    const sel = k === selected ? " selected" : "";
+    return `<option value="${k}"${dis}${sel}>${esc(cat[k].label)}${avail.includes(k) ? "" : " (indisponível)"}</option>`;
+  }).join("");
+}
+
+function modelOptionsFor(pkey, selectedModel) {
+  const base = (pkey || "").split(":")[0];
+  const info = (state.catalog || {})[base] || {};
+  const models = (info.models || []).map((m) =>
+    `<option value="${esc(m)}"${m === selectedModel ? " selected" : ""}>${esc(m)}</option>`
+  ).join("");
+  return models + `<option value="__custom__"${selectedModel && !(info.models || []).includes(selectedModel) ? " selected" : ""}>customizado…</option>`;
+}
 
 function applyTitle(cid, title) {
   if (state.cid === cid) $("cv-title").textContent = title || PLACEHOLDER_TITLE;
@@ -65,6 +93,7 @@ async function init() {
     state.catalog = {}; state.available = [];
   }
   buildParticipantRows();
+  await loadAgents();
   await loadConversations();
   wireUI();
 }
@@ -74,6 +103,16 @@ function wireUI() {
   $("modal-cancel").onclick = closeModal;
   $("modal-bg").onclick = (e) => { if (e.target === $("modal-bg")) closeModal(); };
   $("modal-create").onclick = createConversation;
+  $("agents-btn").onclick = openAgentsModal;
+  $("agents-close").onclick = closeAgentsModal;
+  $("agents-modal-bg").onclick = (e) => { if (e.target === $("agents-modal-bg")) closeAgentsModal(); };
+  $("open-agents-from-conv")?.addEventListener("click", () => { closeModal(); openAgentsModal(); });
+  $("agent-url-fetch").onclick = fetchAgentUrl;
+  $("agent-url-save").onclick = saveAgentFromUrl;
+  $("agent-manual-save").onclick = saveAgentManual;
+  document.querySelectorAll("#agents-tabs .tab").forEach((tab) => {
+    tab.onclick = () => switchAgentsTab(tab.dataset.tab);
+  });
   $("btn-start").onclick = () => send({ action: "start" });
   $("btn-stop").onclick = () => send({ action: "stop" });
   $("btn-pause").onclick = () => {
@@ -199,7 +238,7 @@ function buildPanes() {
   box.appendChild(sys);
 }
 function makePane(key, label, model) {
-  const c = COLORS[key] || "#888";
+  const c = providerColor(key);
   const t = el("div", "term");
   t.id = "term-" + key;
   t.style.setProperty("--accent", c);
@@ -262,7 +301,7 @@ function appendMessage(m, fromSnapshot) {
   const key = m.speaker_key;
   const cls = role === "synthesis" ? "synth" : role === "human" ? "human" : "";
   const card = el("div", "msg " + cls);
-  card.style.setProperty("--accent", COLORS[key] || "#888");
+  card.style.setProperty("--accent", providerColor(key));
   const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("pt-BR") : "";
   const model = m.meta?.model ? " · " + esc(m.meta.model) : "";
   card.appendChild(el("div", "mh",
@@ -298,7 +337,7 @@ function renderScoreboard() {
 }
 function scoreCard(key, label, model, s) {
   const c = el("div", "score");
-  c.style.setProperty("--accent", COLORS[key] || "#888");
+  c.style.setProperty("--accent", providerColor(key));
   c.appendChild(el("div", "h",
     `<span class="dot"></span><span class="nm">${esc(label)}</span><span class="md">${esc(model || "")}</span>`));
   c.appendChild(el("div", "grid",
@@ -326,15 +365,283 @@ function updateBadge(which, html) {
   if (which === "round") { const b = $("bdg-round"); if (b) b.innerHTML = html; }
 }
 
+/* ---------------- agentes ---------------- */
+async function loadAgents() {
+  try {
+    state.agents = await api("/api/agents");
+  } catch (e) {
+    state.agents = [];
+  }
+  try {
+    const data = await api("/api/agents/presets");
+    state.presets = data.presets || [];
+  } catch (e) {
+    state.presets = [];
+  }
+  renderAgentsList();
+  renderAgentsPresets();
+  buildConvAgentRows();
+}
+
+function switchAgentsTab(tab) {
+  document.querySelectorAll("#agents-tabs .tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.tab === tab);
+  });
+  document.querySelectorAll(".agents-add .tab-panel").forEach((p) => {
+    p.classList.toggle("active", p.id === "tab-" + tab);
+  });
+}
+
+function openAgentsModal() {
+  loadAgents().then(() => $("agents-modal-bg").classList.add("open"));
+}
+function closeAgentsModal() { $("agents-modal-bg").classList.remove("open"); }
+
+function renderAgentsList() {
+  const box = $("agents-list");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!state.agents.length) {
+    box.appendChild(el("div", "note", "Nenhum agente salvo ainda."));
+    return;
+  }
+  for (const a of state.agents) {
+    const card = el("div", "agent-card saved");
+    const src = a.source === "preset" ? "preset" : a.source === "url" ? "url" : "manual";
+    card.innerHTML =
+      `<div class="agent-card-head">` +
+      `<span class="nm">${esc(a.name)}</span>` +
+      `<span class="src">${esc(src)}</span>` +
+      `<button type="button" class="btn ghost agent-del" data-id="${esc(a.id)}">Remover</button>` +
+      `</div>` +
+      `<div class="agent-desc">${esc((a.description || "").slice(0, 220))}${(a.description || "").length > 220 ? "…" : ""}</div>`;
+    card.querySelector(".agent-del").onclick = () => deleteAgent(a.id);
+    box.appendChild(card);
+  }
+}
+
+function renderAgentsPresets() {
+  const box = $("agents-presets");
+  if (!box) return;
+  box.innerHTML = "";
+  const savedNames = new Set(state.agents.map((a) => a.name));
+  for (const p of state.presets) {
+    const exists = savedNames.has(p.name);
+    const card = el("div", "agent-card preset" + (exists ? " added" : ""));
+    card.innerHTML =
+      `<div class="agent-card-head"><span class="nm">${esc(p.name)}</span>` +
+      `<span class="src">${exists ? "já na biblioteca" : "clique para adicionar"}</span></div>` +
+      `<div class="agent-desc">${esc((p.description || "").slice(0, 160))}…</div>`;
+    if (!exists) {
+      card.onclick = () => addPresetAgent(p);
+      card.style.cursor = "pointer";
+    }
+    box.appendChild(card);
+  }
+}
+
+async function addPresetAgent(preset) {
+  try {
+    await api("/api/agents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: preset.name, description: preset.description, source: "preset" }),
+    });
+    await loadAgents();
+  } catch (e) {
+    alert("Erro ao adicionar preset: " + e.message);
+  }
+}
+
+async function deleteAgent(id) {
+  if (!confirm("Remover este agente da biblioteca?")) return;
+  try {
+    await api(`/api/agents/${id}`, { method: "DELETE" });
+    await loadAgents();
+  } catch (e) {
+    alert("Erro ao remover: " + e.message);
+  }
+}
+
+async function fetchAgentUrl() {
+  const url = $("agent-url").value.trim();
+  const msg = $("agent-url-msg");
+  msg.textContent = "Buscando…";
+  try {
+    const data = await api("/api/agents/import-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (data.error) throw new Error(data.error);
+    state.urlImport = data;
+    $("agent-url-name").value = data.name || "";
+    $("agent-url-desc").value = data.description || "";
+    $("agent-url-preview").style.display = "block";
+    msg.textContent = "Conteúdo importado — revise e salve.";
+  } catch (e) {
+    $("agent-url-preview").style.display = "none";
+    msg.textContent = "Erro: " + e.message;
+  }
+}
+
+async function saveAgentFromUrl() {
+  const name = $("agent-url-name").value.trim();
+  const description = $("agent-url-desc").value.trim();
+  if (!name || !description) { alert("Nome e descrição são obrigatórios."); return; }
+  try {
+    await api("/api/agents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name, description, source: "url",
+        source_url: state.urlImport?.source_url || $("agent-url").value.trim(),
+      }),
+    });
+    $("agent-url").value = "";
+    $("agent-url-preview").style.display = "none";
+    $("agent-url-msg").textContent = "Agente salvo.";
+    state.urlImport = null;
+    await loadAgents();
+  } catch (e) {
+    alert("Erro ao salvar: " + e.message);
+  }
+}
+
+async function saveAgentManual() {
+  const name = $("agent-manual-name").value.trim();
+  const description = $("agent-manual-desc").value.trim();
+  if (!name || !description) { alert("Nome e descrição são obrigatórios."); return; }
+  try {
+    await api("/api/agents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, description, source: "manual" }),
+    });
+    $("agent-manual-name").value = "";
+    $("agent-manual-desc").value = "";
+    await loadAgents();
+  } catch (e) {
+    alert("Erro ao salvar: " + e.message);
+  }
+}
+
+function buildConvAgentRows() {
+  const box = $("conv-agents");
+  const noBox = $("no-agents");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!state.agents.length) {
+    if (noBox) noBox.style.display = "block";
+    return;
+  }
+  if (noBox) noBox.style.display = "none";
+
+  const defaultPkey = (state.available || [])[0] || "claude";
+  for (const a of state.agents) {
+    const card = el("div", "pcard agent-conv-card");
+    card.style.setProperty("--accent", providerColor(defaultPkey));
+    card.dataset.agentId = a.id;
+    const models = modelOptionsFor(defaultPkey, (state.catalog?.[defaultPkey]?.models || [])[0]);
+    card.innerHTML =
+      `<div class="ph">` +
+      `<span class="dot"></span><span class="nm">${esc(a.name)}</span>` +
+      `<label class="chk" style="margin-left:auto"><input type="checkbox" class="a-active" data-id="${esc(a.id)}" /> usar</label>` +
+      `</div>` +
+      `<div class="agent-desc note">${esc((a.description || "").slice(0, 120))}${(a.description || "").length > 120 ? "…" : ""}</div>` +
+      `<div class="pgrid a-config" data-id="${esc(a.id)}" style="display:none">` +
+      `<div><label class="note">CLI</label><select class="a-pkey" data-id="${esc(a.id)}">${providerOptions(defaultPkey)}</select></div>` +
+      `<div><label class="note">Modelo</label><select class="a-model" data-id="${esc(a.id)}">${models}</select>` +
+      `<input type="text" class="a-model-custom" data-id="${esc(a.id)}" placeholder="modelo customizado" style="display:none;margin-top:6px" /></div>` +
+      `<div><label class="note">Interação</label><div><label class="chk"><input type="checkbox" class="a-interact" data-id="${esc(a.id)}" checked /> pode perguntar / trocar ideias</label></div></div>` +
+      `</div>`;
+    box.appendChild(card);
+  }
+
+  box.querySelectorAll(".a-active").forEach((chk) => {
+    chk.addEventListener("change", () => {
+      const cfg = box.querySelector(`.a-config[data-id="${chk.dataset.id}"]`);
+      if (cfg) cfg.style.display = chk.checked ? "grid" : "none";
+      const card = chk.closest(".agent-conv-card");
+      const pkey = box.querySelector(`.a-pkey[data-id="${chk.dataset.id}"]`)?.value || defaultPkey;
+      if (card) card.style.setProperty("--accent", providerColor(pkey));
+    });
+  });
+
+  box.querySelectorAll(".a-pkey").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const id = sel.dataset.id;
+      const modelSel = box.querySelector(`.a-model[data-id="${id}"]`);
+      if (modelSel) {
+        modelSel.innerHTML = modelOptionsFor(sel.value, (state.catalog?.[sel.value]?.models || [])[0]);
+      }
+      const card = sel.closest(".agent-conv-card");
+      if (card) card.style.setProperty("--accent", providerColor(sel.value));
+    });
+  });
+
+  box.querySelectorAll(".a-model").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const custom = box.querySelector(`.a-model-custom[data-id="${sel.dataset.id}"]`);
+      if (custom) custom.style.display = sel.value === "__custom__" ? "block" : "none";
+    });
+  });
+}
+
+function collectAgentParticipants() {
+  const out = [];
+  for (const a of state.agents) {
+    const chk = document.querySelector(`.a-active[data-id="${a.id}"]`);
+    if (!chk?.checked) continue;
+    const pkey = document.querySelector(`.a-pkey[data-id="${a.id}"]`)?.value;
+    if (!pkey || !state.available.includes(pkey)) continue;
+    const sel = document.querySelector(`.a-model[data-id="${a.id}"]`);
+    let model = sel ? sel.value : "";
+    if (model === "__custom__") {
+      model = document.querySelector(`.a-model-custom[data-id="${a.id}"]`)?.value.trim() || "";
+    }
+    if (!model) continue;
+    out.push({
+      pkey: `${pkey}:${a.id}`,
+      label: a.name,
+      model,
+      active: true,
+      can_interact: document.querySelector(`.a-interact[data-id="${a.id}"]`)?.checked ?? true,
+      persona: a.description,
+      agent_id: a.id,
+    });
+  }
+  return out;
+}
+
+function collectAdhocParticipants() {
+  const participants = [];
+  for (const key of PROVIDER_ORDER) {
+    const active = document.querySelector(`.p-active[data-key="${key}"]`);
+    if (!active || !active.checked) continue;
+    const sel = document.querySelector(`.p-model[data-key="${key}"]`);
+    let model = sel ? sel.value : "";
+    if (model === "__custom__") model = document.querySelector(`.p-model-custom[data-key="${key}"]`).value.trim();
+    if (!model) continue;
+    participants.push({
+      pkey: key,
+      label: LABELS[key] || key,
+      model,
+      active: true,
+      can_interact: document.querySelector(`.p-interact[data-key="${key}"]`).checked,
+      persona: document.querySelector(`.p-persona[data-key="${key}"]`).value.trim(),
+    });
+  }
+  return participants;
+}
+
 /* ---------------- modal ---------------- */
 function buildParticipantRows() {
   const box = $("participants"); box.innerHTML = "";
   const cat = state.catalog || {};
   const avail = state.available;
   if (!avail.length) { $("no-keys").style.display = "block"; }
-  // ordem padrão
-  const order = ["claude", "gpt", "gemini", "deepseek"];
-  for (const key of order) {
+  for (const key of PROVIDER_ORDER) {
     if (!cat[key]) continue;
     const isAvail = avail.includes(key);
     const info = cat[key];
@@ -362,33 +669,25 @@ function buildParticipantRows() {
   });
 }
 
-function openModal() { $("modal-bg").classList.add("open"); }
+function openModal() {
+  buildConvAgentRows();
+  $("modal-bg").classList.add("open");
+}
 function closeModal() { $("modal-bg").classList.remove("open"); }
 
 async function createConversation() {
-  const order = ["claude", "gpt", "gemini", "deepseek"];
-  const participants = [];
-  for (const key of order) {
-    const active = document.querySelector(`.p-active[data-key="${key}"]`);
-    if (!active || !active.checked) continue;
-    const sel = document.querySelector(`.p-model[data-key="${key}"]`);
-    let model = sel ? sel.value : "";
-    if (model === "__custom__") model = document.querySelector(`.p-model-custom[data-key="${key}"]`).value.trim();
-    if (!model) continue;
-    participants.push({
-      pkey: key,
-      label: LABELS[key] || key,
-      model,
-      active: true,
-      can_interact: document.querySelector(`.p-interact[data-key="${key}"]`).checked,
-      persona: document.querySelector(`.p-persona[data-key="${key}"]`).value.trim(),
-    });
+  const agentParts = collectAgentParticipants();
+  const adhocParts = collectAdhocParticipants();
+  const participants = [...agentParts, ...adhocParts];
+  if (!participants.length) {
+    alert("Selecione ao menos um agente (com CLI/modelo) ou um participante ad-hoc.");
+    return;
   }
-  if (!participants.length) { alert("Selecione ao menos uma IA com modelo definido."); return; }
 
   const goal = $("f-goal").value.trim();
   if (!goal) { alert("Informe o objetivo da conversa."); return; }
 
+  const agentIds = agentParts.map((p) => p.agent_id).filter(Boolean);
   const payload = {
     title: PLACEHOLDER_TITLE,
     goal,
@@ -400,8 +699,9 @@ async function createConversation() {
       apify: $("f-apify").checked,
       mcp: $("f-mcp").checked,
       synthesize: $("f-synth").checked,
+      agent_ids: agentIds,
     },
-    participants,
+    participants: participants.map(({ agent_id, ...rest }) => rest),
   };
   try {
     const { id } = await api("/api/conversations", {

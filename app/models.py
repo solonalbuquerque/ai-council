@@ -75,6 +75,16 @@ class Message(Base):
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 
 
+class Agent(Base):
+    __tablename__ = "agents"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(20), default="manual")  # preset | url | manual
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class UsageEvent(Base):
     __tablename__ = "usage_events"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
