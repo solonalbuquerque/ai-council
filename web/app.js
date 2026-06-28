@@ -59,6 +59,12 @@ function wireUI() {
   };
   $("human-send").onclick = sendHuman;
   $("human-text").addEventListener("keydown", (e) => { if (e.key === "Enter") sendHuman(); });
+  $("btn-export").onclick = exportConversation;
+}
+
+function exportConversation() {
+  if (!state.cid) { alert("Abra uma conversa primeiro."); return; }
+  window.location.href = `/api/conversations/${state.cid}/export`;
 }
 
 /* ---------------- sidebar ---------------- */

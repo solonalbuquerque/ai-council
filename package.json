@@ -3,8 +3,9 @@
   "private": true,
   "scripts": {
     "dev": "python scripts/dev.py",
+    "dev:stop": "python scripts/kill_servers.py",
     "docker:db": "docker compose up db",
     "docker:up": "docker compose --profile full up --build",
-    "settings": "echo Abra http://localhost:8000/settings"
+    "settings": "echo Abra a URL exibida ao rodar npm run dev (ex.: http://127.0.0.1:8002/settings)"
   }
 }

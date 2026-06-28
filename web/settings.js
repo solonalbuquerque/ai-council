@@ -1,6 +1,6 @@
 /* ============ Settings — CLI config ============ */
 const COLORS = {
-  claude: "#d98a63", gpt: "#19c39c", gemini: "#5b8def", deepseek: "#9d7bf0",
+  claude: "#d98a63", gpt: "#19c39c", gemini: "#5b8def", antigravity: "#f2c94c", deepseek: "#9d7bf0",
 };
 const STATUS_LABEL = {
   ok: "OK", auth: "Precisa autenticar", missing: "Não instalado",
@@ -137,7 +137,7 @@ function makeCard(p) {
     <div class="cli-auth note">${esc(p.auth_help || "")}</div>
     <div class="cli-install note">Instalar: <code>${esc(p.install || "")}</code></div>
     <div class="cli-response" id="resp-${p.pkey}" style="display:${state.lastTests[p.pkey] ? "block" : "none"}"></div>
-    ${p.supports_token ? tokenRowHtml(p, showLogin) : ""}
+    ${p.supports_token ? tokenRowHtml(p, true) : ""}
     <div class="cli-actions">
       <button class="btn" data-act="install" data-key="${p.pkey}" title="${esc(installTitle)}">${esc(installLabel)}</button>
       <button class="btn" data-act="login" data-key="${p.pkey}" style="display:${showLogin ? "" : "none"}">Fazer login</button>
@@ -202,7 +202,8 @@ async function loginCli(pkey) {
     }
     const prov = state.providers.find((p) => p.pkey === pkey);
     if (r.ok && prov && prov.supports_token) {
-      html += `<div class="note" style="margin-top:8px">Copie o token <code>sk-ant-oat01-…</code> que aparece no terminal, cole no campo abaixo e clique em Salvar.</div>`;
+      const what = pkey === "claude" ? "o token <code>sk-ant-oat01-…</code>" : "a key gerada";
+      html += `<div class="note" style="margin-top:8px">Copie ${what} que aparece no terminal, cole no campo abaixo e clique em Salvar.</div>`;
       const row = $(`token-row-${pkey}`);
       if (row) row.style.display = "block";
     }

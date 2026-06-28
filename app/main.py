@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import store
@@ -152,6 +152,20 @@ async def get_conversation(cid: str):
     if not full:
         return JSONResponse({"error": "not found"}, status_code=404)
     return full
+
+
+@app.get("/api/conversations/{cid}/export")
+async def export_conversation(cid: str):
+    full = await store.get_conversation_full(cid)
+    if not full:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in (full.get("title") or "conversa"))[:60]
+    body = json.dumps(full, ensure_ascii=False, indent=2)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{safe}-{cid[:8]}.json"'},
+    )
 
 
 # ------------------------------- WS -----------------------------------

@@ -45,8 +45,12 @@ def _inject_tokens(env: dict) -> dict:
         if not token_env:
             continue
         token = (providers.get(pkey, {}) or {}).get("token")
-        if token and str(token).strip():
-            env[token_env] = str(token).strip()
+        if not (token and str(token).strip()):
+            continue
+        value = str(token).strip()
+        envs = token_env if isinstance(token_env, (list, tuple)) else [token_env]
+        for ev in envs:
+            env[ev] = value
     return env
 
 
@@ -108,6 +112,10 @@ def _search_paths() -> list[str]:
     env = os.getenv("CLI_EXTRA_PATH", "")
     if env:
         paths.extend(p.strip() for p in env.split(os.pathsep) if p.strip())
+    if os.name == "nt":
+        agy_bin = os.path.expandvars(r"%LOCALAPPDATA%\agy\bin")
+        if agy_bin and agy_bin not in paths:
+            paths.append(agy_bin)
     cfg = load_config()
     for p in cfg.get("extra_paths") or []:
         if p and p not in paths:
@@ -151,41 +159,65 @@ def _build_ping_argv(pkey: str, cmd: str, prompt: str) -> list[str]:
         return [cmd, "exec", "--skip-git-repo-check", prompt]
     if pkey == "gemini":
         return [cmd, "-p", prompt, "--approval-mode", "yolo", "--skip-trust"]
+    if pkey == "antigravity":
+        return [cmd, "-p", prompt, "--print-timeout", "90s", "--dangerously-skip-permissions"]
     if pkey == "deepseek":
         return [cmd, "-p", prompt]
     return [cmd, "-p", prompt]
 
 
-def _build_run_argv(pkey: str, cmd: str, system: str, user_prompt: str, model: str | None) -> list[str]:
+def _codex_supports_model(model: str) -> bool:
+    """O codex (conta ChatGPT) só aceita modelos próprios; gpt-4o/gpt-4.1 dão 400."""
+    m = (model or "").strip().lower()
+    return m.startswith(("gpt-5", "o3", "o4", "codex"))
+
+
+def _build_run_argv(
+    pkey: str, cmd: str, system: str, user_prompt: str, model: str | None
+) -> tuple[list[str], str | None]:
+    """Retorna (argv, stdin_text).
+
+    Quando stdin_text != None, o prompt vai pelo STDIN em vez de argumento de
+    linha de comando. Isso é essencial nos wrappers .CMD do Windows (claude,
+    codex, gemini): rodados via cmd.exe, qualquer quebra de linha no argumento
+    trunca o comando — o CLI recebia só "OBJETIVO:" e perdia objetivo+histórico.
+    """
+    combined = f"{system}\n\n{user_prompt}"
     if pkey == "claude":
-        argv = [cmd, "-p", user_prompt, "--output-format", "text", "--tools", "",
-                "--system-prompt", system]
+        argv = [cmd, "-p", "--output-format", "text", "--tools", ""]
         if model:
             argv.extend(["--model", model])
-        return argv
+        return argv, combined
     if pkey == "gpt":
-        combined = f"{system}\n\n{user_prompt}"
-        argv = [cmd, "exec", "--skip-git-repo-check", "-c", "approval=never", combined]
-        if model:
+        argv = [cmd, "exec", "--skip-git-repo-check", "-c", "approval=never"]
+        # O codex via conta ChatGPT só aceita modelos próprios (gpt-5*, o3, o4, codex).
+        # Modelos de API como gpt-4o causam 400; nesse caso usamos o default da conta.
+        if model and _codex_supports_model(model):
             argv.extend(["-c", f"model={model}"])
-        return argv
+        return argv, combined
     if pkey == "gemini":
-        combined = f"{system}\n\n{user_prompt}"
-        argv = [cmd, "-p", combined, "--approval-mode", "yolo", "--skip-trust"]
+        argv = [cmd, "-p", "", "--approval-mode", "yolo", "--skip-trust"]
         if model:
             argv.extend(["-m", model])
-        return argv
+        return argv, combined
+    if pkey == "antigravity":
+        # agy.EXE roda via argv direto (sem shell), então quebras de linha são preservadas.
+        argv = [cmd, "-p", combined, "--print-timeout", "180s", "--dangerously-skip-permissions"]
+        if model:
+            argv.extend(["--model", model])
+        return argv, None
     if pkey == "deepseek":
-        combined = f"{system}\n\n{user_prompt}"
         argv = [cmd, "-p", combined]
         if model:
             argv.extend(["--model", model])
-        return argv
-    return [cmd, "-p", user_prompt]
+        return argv, None
+    return [cmd, "-p", combined], None
 
 
 def _classify_error(stderr: str, stdout: str) -> str:
     text = (stderr + stdout).lower()
+    if "ineligibletiererror" in text or "unsupported_client" in text:
+        return "auth"
     if any(k in text for k in ("authenticate", "authentication", "401", "login", "api key", "auth method", "credentials")):
         return "auth"
     if "command not found" in text or "not recognized" in text:
@@ -193,17 +225,22 @@ def _classify_error(stderr: str, stdout: str) -> str:
     return "error"
 
 
-def _run_sync(argv: list[str], env: dict, timeout: int) -> tuple[int, str, str]:
+def _run_sync(
+    argv: list[str], env: dict, timeout: int, stdin_data: str | None = None
+) -> tuple[int, str, str]:
     import subprocess
 
     kwargs = {
-        "stdin": subprocess.DEVNULL,
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "env": env,
         "cwd": str(ROOT),
         "timeout": timeout,
     }
+    if stdin_data is not None:
+        kwargs["input"] = stdin_data.encode("utf-8")
+    else:
+        kwargs["stdin"] = subprocess.DEVNULL
     cmd = argv[0]
     try:
         if os.name == "nt" and cmd.lower().endswith((".cmd", ".bat")):
@@ -218,9 +255,11 @@ def _run_sync(argv: list[str], env: dict, timeout: int) -> tuple[int, str, str]:
     return proc.returncode or 0, stdout, stderr
 
 
-async def _run_process(argv: list[str], timeout: int = PING_TIMEOUT) -> tuple[int, str, str]:
+async def _run_process(
+    argv: list[str], timeout: int = PING_TIMEOUT, stdin_data: str | None = None
+) -> tuple[int, str, str]:
     env = build_cli_env()
-    return await asyncio.to_thread(_run_sync, argv, env, timeout)
+    return await asyncio.to_thread(_run_sync, argv, env, timeout, stdin_data)
 
 
 async def get_version(cmd: str, pkey: str) -> str | None:
@@ -236,6 +275,8 @@ async def provider_status(pkey: str, *, ping: bool = False) -> dict:
     spec = CLI_SPECS[pkey]
     cmd, path = resolve_command(pkey)
     cfg = load_config().get("providers", {}).get(pkey, {})
+    install_cmd = spec.get("install_windows") if os.name == "nt" else spec.get("install")
+    install_cmd = install_cmd or spec["install"]
 
     status = {
         "pkey": pkey,
@@ -248,7 +289,7 @@ async def provider_status(pkey: str, *, ping: bool = False) -> dict:
         "ready": False,
         "status": "missing",
         "message": "",
-        "install": spec["install"],
+        "install": install_cmd,
         "install_alt": spec.get("install_alt"),
         "auth_help": spec["auth_help"],
         "enabled": cfg.get("enabled", True),
@@ -312,12 +353,31 @@ async def test_provider(pkey: str, prompt: str | None = None) -> dict:
 
     kind = _classify_error(stderr, stdout)
     if kind == "auth":
+        raw = (stderr or stdout)[:2000]
+        message = f"Precisa autenticar. {spec['auth_help']}"
+        if pkey == "gemini" and ("IneligibleTierError" in raw or "UNSUPPORTED_CLIENT" in raw):
+            message = (
+                "Gemini CLI autenticou no navegador, mas sua conta individual/free tier não é mais "
+                "suportada por este cliente. Use conta enterprise/API key compatível ou o card Antigravity CLI."
+            )
         return {
             "ok": False,
             "status": "auth",
-            "message": f"Precisa autenticar. {spec['auth_help']}",
+            "message": message,
             "response": None,
-            "raw": (stderr or stdout)[:2000],
+            "raw": raw,
+        }
+
+    if pkey == "antigravity" and code == 0 and not stdout and not stderr:
+        return {
+            "ok": False,
+            "status": "auth",
+            "message": (
+                "O agy não retornou resposta (auth ausente no modo -p). "
+                "Faça login, copie a key gerada e cole no campo abaixo, depois Testar."
+            ),
+            "response": None,
+            "raw": "",
         }
 
     err = stderr or stdout or f"exit code {code}"
@@ -336,15 +396,12 @@ async def run_cli(pkey: str, system: str, user_prompt: str, model: str | None = 
     if not path:
         return "", "CLI não disponível"
 
-    argv = _build_run_argv(pkey, path, system, user_prompt, model)
-    code, stdout, stderr = await _run_process(argv, timeout=180)
+    argv, stdin_text = _build_run_argv(pkey, path, system, user_prompt, model)
+    code, stdout, stderr = await _run_process(argv, timeout=180, stdin_data=stdin_text)
 
     if code == 0 and stdout:
-        if pkey == "gpt":
-            lines = [ln.strip() for ln in stdout.splitlines() if ln.strip()]
-            for ln in reversed(lines):
-                if ln.lower() not in ("codex", "user", "tokens used") and not ln.startswith("---"):
-                    return ln, None
+        # codex exec (lido via stdin) escreve a resposta completa no stdout e os
+        # metadados no stderr — então basta retornar o stdout inteiro.
         return stdout.strip(), None
 
     kind = _classify_error(stderr, stdout)
@@ -358,7 +415,8 @@ async def install_provider(pkey: str) -> dict:
     if not spec:
         return {"ok": False, "message": "Provedor desconhecido"}
 
-    install_cmd = spec["install"]
+    install_cmd = spec.get("install_windows") if os.name == "nt" else spec.get("install")
+    install_cmd = install_cmd or spec["install"]
     if _in_docker() and install_cmd.startswith("claude install"):
         install_cmd = spec.get("install_alt") or spec["install"]
 

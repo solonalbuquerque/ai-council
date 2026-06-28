@@ -14,7 +14,7 @@ DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5433/aicouncil"
 DB_HOST = "127.0.0.1"
 DB_PORT = 5433
 APP_HOST = "127.0.0.1"
-APP_PORTS = [8000, 8002]
+APP_PORTS = [8000, 8002, 8010, 8020, 8080]
 WAIT_TIMEOUT = 60
 
 
