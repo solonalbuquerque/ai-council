@@ -58,7 +58,16 @@ input, select, textarea { font-family: inherit; }
 .body { display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
 
 /* ---------- sidebar ---------- */
-.sidebar { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 12px; }
+.sidebar {
+  border-right: 1px solid var(--line); background: var(--panel);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.sidebar-top {
+  position: sticky; top: 0; z-index: 2; flex-shrink: 0;
+  padding: 12px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.sidebar-new { width: 100%; }
+.sidebar-scroll { flex: 1; overflow-y: auto; padding: 12px; min-height: 0; }
 .sidebar h3 { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted-2); margin: 4px 6px 10px; }
 .conv-item {
   padding: 10px 12px; border-radius: 8px; border: 1px solid transparent; cursor: pointer;
@@ -189,6 +198,11 @@ input, select, textarea { font-family: inherit; }
 .modal textarea { min-height: 64px; resize: vertical; }
 .modal input:focus, .modal select:focus, .modal textarea:focus { outline: none; border-color: var(--gemini); }
 .modal .toggles { display: flex; gap: 16px; flex-wrap: wrap; }
+.limits-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.limit-field { display: flex; flex-direction: column; gap: 6px; }
+.limit-field input[type=number] { width: 110px; }
+.limit-check .limit-chk { align-items: flex-start; max-width: 210px; line-height: 1.45; }
+.limit-check .limit-chk input { margin-top: 2px; flex-shrink: 0; }
 .chk { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text); cursor: pointer; text-transform: none; letter-spacing: 0; }
 .chk input { width: 15px; height: 15px; }
 

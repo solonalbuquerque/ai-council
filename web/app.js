@@ -23,6 +23,29 @@ const esc = (s) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const fmt = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
 const nf = (n) => (n || 0).toLocaleString("pt-BR");
 const money = (n) => "$" + (n || 0).toFixed(4);
+const PLACEHOLDER_TITLE = "Uma nova conversa";
+
+function applyTitle(cid, title) {
+  if (state.cid === cid) $("cv-title").textContent = title || PLACEHOLDER_TITLE;
+  const item = document.querySelector(`.conv-item[data-id="${cid}"] .t`);
+  if (item) item.textContent = title || PLACEHOLDER_TITLE;
+}
+
+async function generateTitle(cid, goal, participants) {
+  try {
+    const { title } = await api(`/api/conversations/${cid}/generate-title`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        goal,
+        participants: participants.map((p) => ({ pkey: p.pkey, model: p.model })),
+      }),
+    });
+    if (title && title !== PLACEHOLDER_TITLE) applyTitle(cid, title);
+  } catch (e) {
+    /* mantém placeholder */
+  }
+}
 
 /* ---------------- API ---------------- */
 async function api(path, opts) {
@@ -75,6 +98,7 @@ async function loadConversations() {
   if (!list.length) { box.appendChild(el("div", "note", "Nenhuma conversa ainda.")); return; }
   for (const c of list) {
     const item = el("div", "conv-item" + (c.id === state.cid ? " active" : ""));
+    item.dataset.id = c.id;
     item.appendChild(el("div", "t", esc(c.title)));
     item.appendChild(el("div", "g", esc(c.goal || "sem objetivo")));
     item.appendChild(el("div", "s", esc(c.status)));
@@ -362,9 +386,12 @@ async function createConversation() {
   }
   if (!participants.length) { alert("Selecione ao menos uma IA com modelo definido."); return; }
 
+  const goal = $("f-goal").value.trim();
+  if (!goal) { alert("Informe o objetivo da conversa."); return; }
+
   const payload = {
-    title: $("f-title").value.trim() || "Nova conversa",
-    goal: $("f-goal").value.trim(),
+    title: PLACEHOLDER_TITLE,
+    goal,
     mode: $("f-sequential").checked ? "sequential" : "parallel",
     max_rounds: parseInt($("f-rounds").value) || 3,
     token_budget: parseInt($("f-budget").value) || 0,
@@ -382,6 +409,7 @@ async function createConversation() {
     });
     closeModal();
     await openConversation(id);
+    generateTitle(id, goal, participants);
   } catch (e) {
     alert("Erro ao criar conversa: " + e.message);
   }

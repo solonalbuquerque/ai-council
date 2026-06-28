@@ -12,6 +12,7 @@ from app import store
 from app.catalog import PROVIDER_CATALOG
 from app.cli_runner import all_statuses, install_provider, launch_login, load_config, save_config, save_token, test_provider
 from app.db import init_db
+from app.title_gen import generate_title
 from app.orchestrator import RUNNERS, start_runner
 from app.providers import available_providers
 
@@ -152,6 +153,20 @@ async def get_conversation(cid: str):
     if not full:
         return JSONResponse({"error": "not found"}, status_code=404)
     return full
+
+
+@app.post("/api/conversations/{cid}/generate-title")
+async def generate_conversation_title(cid: str, payload: dict | None = None):
+    full = await store.get_conversation_full(cid)
+    if not full:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = payload or {}
+    goal = body.get("goal") or full.get("goal") or ""
+    participants = body.get("participants")
+    title = await generate_title(goal, participants)
+    if title and title != "Uma nova conversa":
+        await store.update_title(cid, title)
+    return {"title": title}
 
 
 @app.get("/api/conversations/{cid}/export")

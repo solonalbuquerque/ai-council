@@ -18,13 +18,17 @@
     <div class="spacer"></div>
     <span class="conn" id="conn">●&nbsp; conectando</span>
     <a class="btn ghost" href="/settings">⚙ CLIs</a>
-    <button class="btn primary" id="new-btn">+ Nova conversa</button>
   </header>
 
   <div class="body">
     <aside class="sidebar">
-      <h3>Histórico</h3>
-      <div id="conv-list"></div>
+      <div class="sidebar-top">
+        <button class="btn primary sidebar-new" id="new-btn">+ Nova conversa</button>
+      </div>
+      <div class="sidebar-scroll">
+        <h3>Histórico</h3>
+        <div id="conv-list"></div>
+      </div>
     </aside>
 
     <main class="main" id="main">
@@ -81,23 +85,27 @@
       Nenhum provedor disponível. <a href="/settings" style="color:var(--gemini)">Configure os CLIs</a> (claude, codex, gemini, deepseek) ou defina chaves no <code>.env</code>.
     </div>
 
-    <div class="row"><label>Título</label><input type="text" id="f-title" placeholder="Ex.: Estratégia de lançamento" /></div>
-    <div class="row"><label>Objetivo</label><textarea id="f-goal" placeholder="O que essa conversa precisa resolver?"></textarea></div>
+    <div class="row"><label>Objetivo</label><textarea id="f-goal" placeholder="O que essa conversa precisa resolver? Um título será gerado automaticamente por IA."></textarea></div>
 
     <div class="row">
-      <label>Rodadas</label>
-      <div><input type="number" id="f-rounds" value="3" min="1" max="12" style="width:90px" /> <span class="note">quantas vezes cada IA fala</span></div>
-    </div>
-    <div class="row">
-      <label>Orçamento</label>
-      <div><input type="number" id="f-budget" value="0" min="0" step="1000" style="width:130px" /> <span class="note">limite de tokens (0 = ilimitado)</span></div>
-    </div>
-
-    <div class="row">
-      <label>Modo</label>
-      <div class="toggles">
-        <label class="chk"><input type="checkbox" id="f-sequential" checked /> Aguardar uns aos outros (sequencial)</label>
-        <span class="note">desmarcado = todas falam em paralelo</span>
+      <label>Limites</label>
+      <div class="limits-row">
+        <label class="limit-field">
+          <span class="note">Rodadas</span>
+          <input type="number" id="f-rounds" value="3" min="1" max="12" />
+        </label>
+        <label class="limit-field">
+          <span class="note">Orçamento</span>
+          <input type="number" id="f-budget" value="0" min="0" step="1000" />
+          <span class="note">0 = ilimitado</span>
+        </label>
+        <div class="limit-field limit-check">
+          <span class="note">Modo</span>
+          <label class="chk limit-chk">
+            <input type="checkbox" id="f-sequential" checked />
+            <span>Aguardar uns aos outros (sequencial)</span>
+          </label>
+        </div>
       </div>
     </div>
 

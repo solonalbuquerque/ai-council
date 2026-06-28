@@ -6,10 +6,11 @@ from app.db import Session
 
 
 async def create_conversation(payload: dict) -> str:
+    goal = payload.get("goal") or ""
     async with Session() as s:
         conv = models.Conversation(
-            title=payload.get("title") or "Nova conversa",
-            goal=payload.get("goal") or "",
+            title=payload.get("title") or "Uma nova conversa",
+            goal=goal,
             mode=payload.get("mode") or "sequential",
             max_rounds=int(payload.get("max_rounds") or 3),
             token_budget=int(payload.get("token_budget") or 0),
@@ -136,3 +137,13 @@ async def set_status(cid: str, status: str):
         if c:
             c.status = status
             await s.commit()
+
+
+async def update_title(cid: str, title: str) -> bool:
+    async with Session() as s:
+        c = await s.get(models.Conversation, cid)
+        if not c:
+            return False
+        c.title = (title or "Uma nova conversa")[:200]
+        await s.commit()
+        return True
