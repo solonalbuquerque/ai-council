@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import store
 from app.catalog import PROVIDER_CATALOG
-from app.cli_runner import all_statuses, install_provider, load_config, save_config, test_provider
+from app.cli_runner import all_statuses, install_provider, launch_login, load_config, save_config, test_provider
 from app.db import init_db
 from app.orchestrator import RUNNERS, start_runner
 from app.providers import available_providers
@@ -110,6 +110,11 @@ async def cli_test(pkey: str, payload: dict | None = None):
 @app.post("/api/cli/install/{pkey}")
 async def cli_install(pkey: str):
     return await install_provider(pkey)
+
+
+@app.post("/api/cli/login/{pkey}")
+async def cli_login(pkey: str):
+    return launch_login(pkey)
 
 
 @app.put("/api/cli/config")

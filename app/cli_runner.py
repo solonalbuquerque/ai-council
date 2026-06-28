@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from app.cli_registry import CLI_SPECS, PKEY_ORDER
@@ -18,6 +19,30 @@ DEFAULT_CONFIG = {
 
 PING_TIMEOUT = 90
 INSTALL_TIMEOUT = 300
+
+API_KEY_VARS = [
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "DEEPSEEK_API_KEY",
+]
+
+
+def clean_cli_env(env: dict) -> dict:
+    """Remove chaves de API vazias para o CLI usar login nativo (OAuth ~/.claude etc.)."""
+    env = dict(env)
+    for k in API_KEY_VARS:
+        if k in env and not str(env[k]).strip():
+            del env[k]
+    return env
+
+
+def build_cli_env() -> dict:
+    env = clean_cli_env(os.environ.copy())
+    extra = _search_paths()
+    if extra:
+        env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
+    return env
 
 
 def _in_docker() -> bool:
@@ -158,10 +183,7 @@ def _run_sync(argv: list[str], env: dict, timeout: int) -> tuple[int, str, str]:
 
 
 async def _run_process(argv: list[str], timeout: int = PING_TIMEOUT) -> tuple[int, str, str]:
-    env = os.environ.copy()
-    extra = _search_paths()
-    if extra:
-        env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
+    env = build_cli_env()
     return await asyncio.to_thread(_run_sync, argv, env, timeout)
 
 
@@ -204,7 +226,7 @@ async def provider_status(pkey: str, *, ping: bool = False) -> dict:
     status["version"] = await get_version(path, pkey)
     status["installed"] = True
     status["status"] = "installed"
-    status["message"] = "Instalado — clique em Testar OI para validar autenticação."
+    status["message"] = "Instalado — clique em Testar para validar autenticação."
 
     if ping:
         result = await test_provider(pkey)
@@ -309,7 +331,7 @@ async def install_provider(pkey: str) -> dict:
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                env=os.environ.copy(),
+                env=build_cli_env(),
                 cwd=str(ROOT),
                 timeout=INSTALL_TIMEOUT,
             )
@@ -327,6 +349,92 @@ async def install_provider(pkey: str) -> dict:
         "message": "Instalação concluída." if ok else (stderr or stdout or "Falha na instalação")[:800],
         "output": (stdout + stderr)[:4000],
     }
+
+
+def _build_login_command(pkey: str) -> tuple[str | None, str | None]:
+    """Retorna (cmdline para shell, mensagem de erro se CLI ausente)."""
+    spec = CLI_SPECS.get(pkey)
+    if not spec:
+        return None, "Provedor desconhecido"
+
+    _, path = resolve_command(pkey)
+    if not path:
+        return None, "CLI não instalado."
+
+    import subprocess
+
+    argv = [path, *spec.get("login_args", [])]
+    return subprocess.list2cmdline(argv), None
+
+
+def launch_login(pkey: str) -> dict:
+    """Abre terminal nativo do SO com o comando de login do CLI."""
+    spec = CLI_SPECS.get(pkey)
+    if not spec:
+        return {"ok": False, "message": "Provedor desconhecido", "command": None}
+
+    if _in_docker():
+        cmdline, _ = _build_login_command(pkey)
+        return {
+            "ok": False,
+            "message": "Login interativo não funciona dentro do Docker. Rode npm run dev na sua máquina.",
+            "command": cmdline,
+        }
+
+    cmdline, err = _build_login_command(pkey)
+    if err:
+        return {"ok": False, "message": err, "command": None}
+
+    label = spec["label"]
+    env = build_cli_env()
+    cwd = str(ROOT)
+
+    import subprocess
+
+    try:
+        if os.name == "nt":
+            title = f"Login {label}"
+            subprocess.Popen(
+                f'start "{title}" cmd /k {cmdline}',
+                shell=True,
+                cwd=cwd,
+                env=env,
+            )
+        elif sys.platform == "darwin":
+            script = f'tell application "Terminal" to do script "{cmdline}"'
+            subprocess.Popen(["osascript", "-e", script], cwd=cwd, env=env)
+        else:
+            launched = False
+            for term_cmd in (
+                ["gnome-terminal", "--", "bash", "-lc", cmdline],
+                ["x-terminal-emulator", "-e", f"bash -lc {cmdline!r}"],
+                ["konsole", "-e", "bash", "-lc", cmdline],
+            ):
+                try:
+                    subprocess.Popen(term_cmd, cwd=cwd, env=env)
+                    launched = True
+                    break
+                except FileNotFoundError:
+                    continue
+            if not launched:
+                return {
+                    "ok": False,
+                    "message": "Não foi possível abrir um terminal. Rode o comando manualmente:",
+                    "command": cmdline,
+                }
+
+        hint = cmdline if spec.get("login_args") else f"{cmdline}  (modo interativo)"
+        return {
+            "ok": True,
+            "message": f"Abrimos um terminal com: {hint}. Conclua o login e clique em Testar.",
+            "command": cmdline,
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "message": f"Falha ao abrir terminal: {e}. Rode manualmente:",
+            "command": cmdline,
+        }
 
 
 def cli_available(pkey: str) -> bool:

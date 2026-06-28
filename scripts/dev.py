@@ -101,7 +101,6 @@ def main() -> None:
     try:
         from dotenv import load_dotenv
         load_dotenv(ROOT / ".env", override=False)
-        env.setdefault("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
     except ImportError:
         pass
     env["DATABASE_URL"] = DATABASE_URL

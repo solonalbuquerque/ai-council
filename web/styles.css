@@ -243,11 +243,20 @@ input, select, textarea { font-family: inherit; }
 .cli-msg.warn { color: var(--warn); }
 .cli-msg.bad { color: var(--danger); }
 .cli-auth, .cli-install { margin-bottom: 6px; }
-.cli-response { margin: 10px 0; padding: 10px 12px; border-radius: 8px; font-size: 12px; }
+.cli-response { margin: 10px 0; padding: 10px 12px; border-radius: 8px; font-size: 12px; min-height: 3em; }
+.cli-response.loading { background: var(--panel-2); border: 1px solid var(--line); }
+.cli-response.loading .txt { color: var(--muted); }
+.cli-response .ts { font-size: 9px; color: var(--muted-2); margin-top: 8px; }
+.cli-response .spinner {
+  width: 18px; height: 18px; margin-top: 10px;
+  border: 2px solid var(--line); border-top-color: var(--gemini);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .cli-response.ok { background: color-mix(in srgb, var(--ok) 12%, var(--panel-2)); border: 1px solid var(--ok); }
 .cli-response.bad { background: color-mix(in srgb, var(--danger) 10%, var(--panel-2)); border: 1px solid var(--danger); }
 .cli-response .k { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted-2); display: block; margin-bottom: 4px; }
 .cli-response .txt { white-space: pre-wrap; word-break: break-word; color: var(--text); }
 .cli-response pre.raw { font-size: 10px; color: var(--muted); margin: 8px 0 0; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
-.cli-actions { display: flex; gap: 8px; margin-top: 12px; }
+.cli-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .warnbox.okbox { background: color-mix(in srgb, var(--ok) 10%, var(--panel)); border-color: var(--ok); }

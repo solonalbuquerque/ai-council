@@ -21,7 +21,44 @@ async function api(path, opts) {
   return data;
 }
 
-let state = { providers: [], config: {}, runtime_mode: "local" };
+let state = { providers: [], config: {}, runtime_mode: "local", lastTests: {} };
+
+function testResultHtml(r) {
+  if (r.ok) {
+    return `<span class="k">Resposta</span><div class="txt">${esc(r.response)}</div>` +
+      (r.at ? `<div class="ts">Testado ${new Date(r.at).toLocaleTimeString("pt-BR")}</div>` : "");
+  }
+  return `<span class="k">Falha</span><div class="txt">${esc(r.message)}</div>` +
+    (r.raw ? `<pre class="raw">${esc(r.raw)}</pre>` : "") +
+    (r.at ? `<div class="ts">Testado ${new Date(r.at).toLocaleTimeString("pt-BR")}</div>` : "");
+}
+
+function setLoginBtnVisible(pkey, visible) {
+  const btn = document.querySelector(`[data-act="login"][data-key="${pkey}"]`);
+  if (btn) btn.style.display = visible ? "" : "none";
+}
+
+function applyTestToCard(pkey, r) {
+  const respBox = $(`resp-${pkey}`);
+  if (!respBox) return;
+  respBox.style.display = "block";
+  respBox.className = "cli-response " + (r.ok ? "ok" : "bad");
+  respBox.innerHTML = testResultHtml(r);
+  const card = respBox.closest(".cli-card");
+  if (!card) return;
+  const pill = card.querySelector(".pill");
+  const st = r.ok ? "ok" : (r.status || "error");
+  if (pill) {
+    pill.className = "pill " + (STATUS_CLS[st] || "bad");
+    pill.textContent = STATUS_LABEL[st] || st;
+  }
+  const msg = card.querySelector(".cli-msg");
+  if (msg) {
+    msg.className = "cli-msg " + (STATUS_CLS[st] || "bad");
+    msg.textContent = r.message || "";
+  }
+  setLoginBtnVisible(pkey, st === "auth");
+}
 
 async function load() {
   const data = await api("/api/cli/status");
@@ -33,6 +70,7 @@ async function load() {
   const warn = $("docker-warn");
   if (state.runtime_mode === "docker") {
     warn.style.display = "block";
+    warn.className = "warnbox";
     warn.innerHTML =
       "Rodando dentro do <b>Docker</b>: o container não enxerga os CLIs instalados no seu computador. " +
       "Para usar claude, codex, gemini e deepseek da sua máquina, pare o Docker do app e rode " +
@@ -42,7 +80,7 @@ async function load() {
     warn.className = "warnbox okbox";
     warn.innerHTML =
       "Modo <b>local</b> — detectando CLIs instalados nesta máquina. " +
-      "Autentique no terminal e use <b>Testar OI</b> abaixo.";
+      "Use <b>Testar</b> e, se precisar, <b>Fazer login</b> (abre um terminal no seu Windows).";
   }
   renderCards();
 }
@@ -64,6 +102,7 @@ function makeCard(p) {
   const st = p.status || (p.installed ? "installed" : "missing");
   const stLabel = STATUS_LABEL[st] || st;
   const stCls = STATUS_CLS[st] || "idle";
+  const showLogin = st === "auth" || (state.lastTests[p.pkey] && state.lastTests[p.pkey].status === "auth");
 
   const installLabel = inDocker ? "Instalar (no container)" : "Instalar";
   const installTitle = inDocker
@@ -83,15 +122,17 @@ function makeCard(p) {
     <div class="cli-msg ${stCls}">${esc(p.message || "")}</div>
     <div class="cli-auth note">${esc(p.auth_help || "")}</div>
     <div class="cli-install note">Instalar: <code>${esc(p.install || "")}</code></div>
-    <div class="cli-response" id="resp-${p.pkey}" style="display:none"></div>
+    <div class="cli-response" id="resp-${p.pkey}" style="display:${state.lastTests[p.pkey] ? "block" : "none"}"></div>
     <div class="cli-actions">
       <button class="btn" data-act="install" data-key="${p.pkey}" title="${esc(installTitle)}">${esc(installLabel)}</button>
-      <button class="btn primary" data-act="test" data-key="${p.pkey}">Testar OI</button>
+      <button class="btn" data-act="login" data-key="${p.pkey}" style="display:${showLogin ? "" : "none"}">Fazer login</button>
+      <button class="btn primary" data-act="test" data-key="${p.pkey}">Testar</button>
     </div>`;
 
-  const installBtn = card.querySelector('[data-act="install"]');
-  installBtn.onclick = () => installCli(p.pkey);
+  card.querySelector('[data-act="install"]').onclick = () => installCli(p.pkey);
   card.querySelector('[data-act="test"]').onclick = () => testCli(p.pkey);
+  card.querySelector('[data-act="login"]').onclick = () => loginCli(p.pkey);
+  if (state.lastTests[p.pkey]) applyTestToCard(p.pkey, state.lastTests[p.pkey]);
   return card;
 }
 
@@ -100,7 +141,12 @@ async function testCli(pkey) {
   const respBox = $(`resp-${pkey}`);
   btn.disabled = true;
   btn.textContent = "Testando…";
-  respBox.style.display = "none";
+  respBox.style.display = "block";
+  respBox.className = "cli-response loading";
+  respBox.innerHTML =
+    `<span class="k">Aguardando</span>` +
+    `<div class="txt">Enviando <strong>OI</strong> ao CLI… pode levar até 1 minuto.</div>` +
+    `<div class="spinner"></div>`;
 
   try {
     const r = await api(`/api/cli/test/${pkey}`, {
@@ -108,23 +154,42 @@ async function testCli(pkey) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt: "OI" }),
     });
+    const saved = { ...r, at: Date.now() };
+    state.lastTests[pkey] = saved;
+    applyTestToCard(pkey, saved);
+  } catch (e) {
+    const saved = { ok: false, status: "error", message: e.message, at: Date.now() };
+    state.lastTests[pkey] = saved;
+    applyTestToCard(pkey, saved);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Testar";
+  }
+}
+
+async function loginCli(pkey) {
+  const btn = document.querySelector(`[data-act="login"][data-key="${pkey}"]`);
+  const respBox = $(`resp-${pkey}`);
+  btn.disabled = true;
+  btn.textContent = "Abrindo…";
+
+  try {
+    const r = await api(`/api/cli/login/${pkey}`, { method: "POST" });
     respBox.style.display = "block";
-    if (r.ok) {
-      respBox.className = "cli-response ok";
-      respBox.innerHTML = `<span class="k">Resposta</span><div class="txt">${esc(r.response)}</div>`;
-    } else {
-      respBox.className = "cli-response bad";
-      respBox.innerHTML = `<span class="k">Falha</span><div class="txt">${esc(r.message)}</div>` +
-        (r.raw ? `<pre class="raw">${esc(r.raw)}</pre>` : "");
+    respBox.className = "cli-response " + (r.ok ? "ok" : "bad");
+    let html = `<span class="k">${r.ok ? "Terminal" : "Login manual"}</span>`;
+    html += `<div class="txt">${esc(r.message)}</div>`;
+    if (r.command) {
+      html += `<div class="note" style="margin-top:8px">Comando: <code>${esc(r.command)}</code></div>`;
     }
-    await load();
+    respBox.innerHTML = html;
   } catch (e) {
     respBox.style.display = "block";
     respBox.className = "cli-response bad";
-    respBox.innerHTML = esc(e.message);
+    respBox.innerHTML = `<span class="k">Erro</span><div class="txt">${esc(e.message)}</div>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = "Testar OI";
+    btn.textContent = "Fazer login";
   }
 }
 
