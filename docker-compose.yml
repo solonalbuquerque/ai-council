@@ -16,6 +16,7 @@ services:
       retries: 20
 
   app:
+    profiles: ["full"]
     build: .
     env_file: .env
     environment:
@@ -29,6 +30,7 @@ services:
       - ./app:/srv/app
       - ./web:/srv/web
       - ./mcp_servers.json:/srv/mcp_servers.json
+      - ./cli_config.json:/srv/cli_config.json
 
 volumes:
   pgdata: {}

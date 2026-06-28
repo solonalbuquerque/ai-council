@@ -1,9 +1,7 @@
-"""Provedores (modo API) com loop de uso de ferramentas.
+"""Provedores (API ou CLI local) com loop de uso de ferramentas.
 
-Cada provider.run() roda um mini-loop agêntico: chama o modelo; se ele pedir
-ferramentas, executa, devolve os resultados e repete até a resposta final.
-Emite eventos de passo (tool_call / tool_result) via callback `emit` para
-alimentar os terminais por IA.
+Modo API: chama o modelo via SDK. Modo CLI: delega ao binário instalado na
+máquina (claude, codex, gemini, deepseek) — autenticação fica no CLI.
 """
 import json
 import os
@@ -13,6 +11,7 @@ from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 from app.catalog import estimate
+from app.cli_runner import cli_available, run_cli
 
 MAX_TOOL_ITERS = 6
 
@@ -157,8 +156,32 @@ class AnthropicProvider(Provider):
         return res
 
 
+class CLIProvider(Provider):
+    """Executa via CLI local (sem loop de ferramentas)."""
+
+    async def run(self, system, user_prompt, tools, emit) -> RunResult:
+        if tools and emit:
+            await _step(emit, "tool_call", {"tool": "_info", "args": {"msg": "Modo CLI: ferramentas desativadas"}})
+        text, err = await run_cli(self.pkey, system, user_prompt, self.model)
+        res = RunResult()
+        if err:
+            res.text = f"[Erro CLI] {err}"
+            if emit:
+                await _step(emit, "tool_result", {"tool": "_cli", "preview": err[:400]})
+            return res
+        res.text = text
+        # estimativa grosseira — CLIs não expõem contagem de tokens
+        res.input_tokens = len(system + user_prompt) // 4
+        res.output_tokens = len(text) // 4
+        res.cost_usd = estimate(self.model, res.input_tokens, res.output_tokens)
+        return res
+
+
 # ---- fábrica ----
 def make_provider(pkey: str, model: str) -> Provider | None:
+    if cli_available(pkey):
+        labels = {"claude": "Claude", "gpt": "ChatGPT", "gemini": "Gemini", "deepseek": "DeepSeek"}
+        return CLIProvider(pkey, labels.get(pkey, pkey), model)
     if pkey == "claude" and os.getenv("ANTHROPIC_API_KEY"):
         return AnthropicProvider("claude", "Claude", model, os.environ["ANTHROPIC_API_KEY"])
     if pkey == "gpt" and os.getenv("OPENAI_API_KEY"):
@@ -176,12 +199,12 @@ def make_provider(pkey: str, model: str) -> Provider | None:
 
 def available_providers() -> list[str]:
     out = []
-    if os.getenv("ANTHROPIC_API_KEY"):
-        out.append("claude")
-    if os.getenv("OPENAI_API_KEY"):
-        out.append("gpt")
-    if os.getenv("GEMINI_API_KEY"):
-        out.append("gemini")
-    if os.getenv("DEEPSEEK_API_KEY"):
-        out.append("deepseek")
+    for pkey, env_key in [
+        ("claude", "ANTHROPIC_API_KEY"),
+        ("gpt", "OPENAI_API_KEY"),
+        ("gemini", "GEMINI_API_KEY"),
+        ("deepseek", "DEEPSEEK_API_KEY"),
+    ]:
+        if cli_available(pkey) or os.getenv(env_key):
+            out.append(pkey)
     return out

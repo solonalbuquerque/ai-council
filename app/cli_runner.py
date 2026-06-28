@@ -1,0 +1,349 @@
+"""Detecção, teste e execução de CLIs locais."""
+import asyncio
+import json
+import os
+import shutil
+from pathlib import Path
+
+from app.cli_registry import CLI_SPECS, PKEY_ORDER
+
+ROOT = Path(__file__).resolve().parent.parent
+CONFIG_PATH = ROOT / "cli_config.json"
+
+DEFAULT_CONFIG = {
+    "prefer_cli": True,
+    "extra_paths": [],
+    "providers": {},
+}
+
+PING_TIMEOUT = 90
+INSTALL_TIMEOUT = 300
+
+
+def _in_docker() -> bool:
+    return os.path.exists("/.dockerenv")
+
+
+def load_config() -> dict:
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            merged = {**DEFAULT_CONFIG, **data}
+            merged["providers"] = {**DEFAULT_CONFIG["providers"], **data.get("providers", {})}
+            return merged
+        except Exception:
+            pass
+    return dict(DEFAULT_CONFIG)
+
+
+def save_config(cfg: dict) -> None:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+def _search_paths() -> list[str]:
+    paths = []
+    env = os.getenv("CLI_EXTRA_PATH", "")
+    if env:
+        paths.extend(p.strip() for p in env.split(os.pathsep) if p.strip())
+    cfg = load_config()
+    for p in cfg.get("extra_paths") or []:
+        if p and p not in paths:
+            paths.append(p)
+    return paths
+
+
+def resolve_command(pkey: str) -> tuple[str | None, str | None]:
+    """Retorna (comando, caminho absoluto ou None)."""
+    spec = CLI_SPECS.get(pkey)
+    if not spec:
+        return None, None
+
+    cfg = load_config().get("providers", {}).get(pkey, {})
+    if cfg.get("command"):
+        cmd = cfg["command"]
+        if os.path.isfile(cmd):
+            return cmd, cmd
+        found = shutil.which(cmd, path=_path_env())
+        return (found, found) if found else (cmd, None)
+
+    for name in spec["commands"]:
+        found = shutil.which(name, path=_path_env())
+        if found:
+            return name, found
+    return None, None
+
+
+def _path_env() -> str | None:
+    extra = _search_paths()
+    if not extra:
+        return None
+    base = os.environ.get("PATH", "")
+    return os.pathsep.join(extra + [base])
+
+
+def _build_ping_argv(pkey: str, cmd: str, prompt: str) -> list[str]:
+    if pkey == "claude":
+        return [cmd, "-p", prompt, "--output-format", "text", "--tools", ""]
+    if pkey == "gpt":
+        return [cmd, "exec", "--skip-git-repo-check", prompt]
+    if pkey == "gemini":
+        return [cmd, "-p", prompt, "--yolo", "--skip-trust", "--approval-mode", "plan"]
+    if pkey == "deepseek":
+        return [cmd, "-p", prompt]
+    return [cmd, "-p", prompt]
+
+
+def _build_run_argv(pkey: str, cmd: str, system: str, user_prompt: str, model: str | None) -> list[str]:
+    if pkey == "claude":
+        argv = [cmd, "-p", user_prompt, "--output-format", "text", "--tools", "",
+                "--system-prompt", system]
+        if model:
+            argv.extend(["--model", model])
+        return argv
+    if pkey == "gpt":
+        combined = f"{system}\n\n{user_prompt}"
+        argv = [cmd, "exec", "--skip-git-repo-check", "-c", "approval=never", combined]
+        if model:
+            argv.extend(["-c", f"model={model}"])
+        return argv
+    if pkey == "gemini":
+        combined = f"{system}\n\n{user_prompt}"
+        argv = [cmd, "-p", combined, "--yolo", "--skip-trust", "--approval-mode", "plan"]
+        if model:
+            argv.extend(["-m", model])
+        return argv
+    if pkey == "deepseek":
+        combined = f"{system}\n\n{user_prompt}"
+        argv = [cmd, "-p", combined]
+        if model:
+            argv.extend(["--model", model])
+        return argv
+    return [cmd, "-p", user_prompt]
+
+
+def _classify_error(stderr: str, stdout: str) -> str:
+    text = (stderr + stdout).lower()
+    if any(k in text for k in ("authenticate", "authentication", "401", "login", "api key", "auth method", "credentials")):
+        return "auth"
+    if "command not found" in text or "not recognized" in text:
+        return "missing"
+    return "error"
+
+
+def _run_sync(argv: list[str], env: dict, timeout: int) -> tuple[int, str, str]:
+    import subprocess
+
+    kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "env": env,
+        "cwd": str(ROOT),
+        "timeout": timeout,
+    }
+    cmd = argv[0]
+    try:
+        if os.name == "nt" and cmd.lower().endswith((".cmd", ".bat")):
+            proc = subprocess.run(subprocess.list2cmdline(argv), shell=True, **kwargs)
+        else:
+            proc = subprocess.run(argv, **kwargs)
+    except subprocess.TimeoutExpired:
+        return -1, "", f"Timeout após {timeout}s"
+
+    stdout = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
+    stderr = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+    return proc.returncode or 0, stdout, stderr
+
+
+async def _run_process(argv: list[str], timeout: int = PING_TIMEOUT) -> tuple[int, str, str]:
+    env = os.environ.copy()
+    extra = _search_paths()
+    if extra:
+        env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
+    return await asyncio.to_thread(_run_sync, argv, env, timeout)
+
+
+async def get_version(cmd: str, pkey: str) -> str | None:
+    spec = CLI_SPECS[pkey]
+    code, out, err = await _run_process([cmd, *spec["version_args"]], timeout=15)
+    text = (out or err).strip()
+    if code == 0 and text:
+        return text.split("\n")[0][:120]
+    return None
+
+
+async def provider_status(pkey: str, *, ping: bool = False) -> dict:
+    spec = CLI_SPECS[pkey]
+    cmd, path = resolve_command(pkey)
+    cfg = load_config().get("providers", {}).get(pkey, {})
+
+    status = {
+        "pkey": pkey,
+        "label": spec["label"],
+        "installed": bool(path),
+        "command": cmd,
+        "path": path,
+        "version": None,
+        "authenticated": False,
+        "ready": False,
+        "status": "missing",
+        "message": "",
+        "install": spec["install"],
+        "install_alt": spec.get("install_alt"),
+        "auth_help": spec["auth_help"],
+        "enabled": cfg.get("enabled", True),
+        "in_docker": _in_docker(),
+    }
+
+    if not path:
+        status["message"] = "CLI não encontrado no PATH."
+        return status
+
+    status["version"] = await get_version(path, pkey)
+    status["installed"] = True
+    status["status"] = "installed"
+    status["message"] = "Instalado — clique em Testar OI para validar autenticação."
+
+    if ping:
+        result = await test_provider(pkey)
+        status["authenticated"] = result["ok"]
+        status["ready"] = result["ok"]
+        status["status"] = result["status"]
+        status["message"] = result["message"]
+        status["last_response"] = result.get("response")
+
+    return status
+
+
+async def all_statuses(*, ping: bool = False) -> list[dict]:
+    return [await provider_status(k, ping=ping) for k in PKEY_ORDER]
+
+
+async def test_provider(pkey: str, prompt: str | None = None) -> dict:
+    spec = CLI_SPECS[pkey]
+    cmd, path = resolve_command(pkey)
+    if not path:
+        return {"ok": False, "status": "missing", "message": "CLI não instalado.", "response": None}
+
+    text = prompt or spec["ping_prompt"]
+    argv = _build_ping_argv(pkey, path, text)
+    code, stdout, stderr = await _run_process(argv)
+
+    if code == 0 and stdout:
+        # Codex inclui metadados antes da resposta — pega últimas linhas úteis
+        lines = [ln.strip() for ln in stdout.splitlines() if ln.strip()]
+        response = lines[-1] if lines else stdout
+        if pkey == "gpt" and len(lines) > 1:
+            # resposta costuma ser a última linha após bloco "codex"
+            for ln in reversed(lines):
+                if ln.lower() not in ("codex", "user", "tokens used") and not ln.startswith("---"):
+                    response = ln
+                    break
+        return {
+            "ok": True,
+            "status": "ok",
+            "message": "CLI autenticado e respondendo.",
+            "response": response,
+            "raw": stdout[:4000],
+        }
+
+    kind = _classify_error(stderr, stdout)
+    if kind == "auth":
+        return {
+            "ok": False,
+            "status": "auth",
+            "message": f"Precisa autenticar. {spec['auth_help']}",
+            "response": None,
+            "raw": (stderr or stdout)[:2000],
+        }
+
+    err = stderr or stdout or f"exit code {code}"
+    return {
+        "ok": False,
+        "status": "error",
+        "message": err[:500],
+        "response": None,
+        "raw": (stderr or stdout)[:2000],
+    }
+
+
+async def run_cli(pkey: str, system: str, user_prompt: str, model: str | None = None) -> tuple[str, str | None]:
+    """Executa CLI e retorna (texto, erro)."""
+    cmd, path = resolve_command(pkey)
+    if not path:
+        return "", "CLI não disponível"
+
+    argv = _build_run_argv(pkey, path, system, user_prompt, model)
+    code, stdout, stderr = await _run_process(argv, timeout=180)
+
+    if code == 0 and stdout:
+        if pkey == "gpt":
+            lines = [ln.strip() for ln in stdout.splitlines() if ln.strip()]
+            for ln in reversed(lines):
+                if ln.lower() not in ("codex", "user", "tokens used") and not ln.startswith("---"):
+                    return ln, None
+        return stdout.strip(), None
+
+    kind = _classify_error(stderr, stdout)
+    if kind == "auth":
+        return "", f"CLI não autenticado. {CLI_SPECS[pkey]['auth_help']}"
+    return "", (stderr or stdout or "Erro desconhecido")[:800]
+
+
+async def install_provider(pkey: str) -> dict:
+    spec = CLI_SPECS.get(pkey)
+    if not spec:
+        return {"ok": False, "message": "Provedor desconhecido"}
+
+    install_cmd = spec["install"]
+    if _in_docker() and install_cmd.startswith("claude install"):
+        install_cmd = spec.get("install_alt") or spec["install"]
+
+    def _sync_install() -> tuple[int, str, str]:
+        import subprocess
+        try:
+            proc = subprocess.run(
+                install_cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=os.environ.copy(),
+                cwd=str(ROOT),
+                timeout=INSTALL_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return -1, "", f"Instalação excedeu {INSTALL_TIMEOUT}s"
+        out = (proc.stdout or b"").decode("utf-8", errors="replace")
+        err = (proc.stderr or b"").decode("utf-8", errors="replace")
+        return proc.returncode or 0, out, err
+
+    code, stdout, stderr = await asyncio.to_thread(_sync_install)
+    ok = code == 0
+
+    return {
+        "ok": ok,
+        "message": "Instalação concluída." if ok else (stderr or stdout or "Falha na instalação")[:800],
+        "output": (stdout + stderr)[:4000],
+    }
+
+
+def cli_available(pkey: str) -> bool:
+    """Síncrono: CLI instalado (sem testar auth)."""
+    _, path = resolve_command(pkey)
+    if not path:
+        return False
+    cfg = load_config().get("providers", {}).get(pkey, {})
+    if cfg.get("enabled") is False:
+        return False
+    if not load_config().get("prefer_cli", True):
+        return False
+    return True
+
+
+async def cli_ready(pkey: str) -> bool:
+    if not cli_available(pkey):
+        return False
+    r = await test_provider(pkey)
+    return r["ok"]

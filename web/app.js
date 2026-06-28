@@ -314,7 +314,7 @@ function buildParticipantRows() {
     card.innerHTML =
       `<div class="ph"><span class="dot"></span><span class="nm">${esc(info.label)}</span>` +
       `<label class="chk" style="margin-left:auto"><input type="checkbox" class="p-active" data-key="${key}" ${isAvail ? "checked" : ""} ${isAvail ? "" : "disabled"} /> ativa</label></div>` +
-      (isAvail ? "" : `<div class="note">Sem chave de API — defina no .env para usar.</div>`) +
+      (isAvail ? "" : `<div class="note">Indisponível — <a href="/settings" style="color:var(--gemini)">configure o CLI</a> ou defina chave no .env.</div>`) +
       `<div class="pgrid">` +
       `<div><label class="note">Modelo</label><select class="p-model" data-key="${key}">${models}<option value="__custom__">customizado…</option></select>` +
       `<input type="text" class="p-model-custom" data-key="${key}" placeholder="modelo customizado" style="display:none;margin-top:6px" /></div>` +

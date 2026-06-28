@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import store
 from app.catalog import PROVIDER_CATALOG
+from app.cli_runner import all_statuses, install_provider, load_config, save_config, test_provider
 from app.db import init_db
 from app.orchestrator import RUNNERS, start_runner
 from app.providers import available_providers
@@ -73,6 +74,8 @@ hub = Hub()
 # ------------------------------- REST ---------------------------------
 @app.get("/api/catalog")
 async def catalog():
+    from app.cli_runner import _in_docker
+    in_docker = _in_docker()
     return {
         "available": available_providers(),
         "catalog": PROVIDER_CATALOG,
@@ -81,7 +84,45 @@ async def catalog():
             "apify": bool(os.getenv("APIFY_TOKEN")),
             "mcp": app.state.mcp is not None and len(app.state.mcp.tools) > 0,
         },
+        "cli_mode": load_config().get("prefer_cli", True),
+        "in_docker": in_docker,
+        "runtime_mode": "docker" if in_docker else "local",
     }
+
+
+@app.get("/api/cli/status")
+async def cli_status():
+    from app.cli_runner import _in_docker
+    in_docker = _in_docker()
+    return {
+        "providers": await all_statuses(),
+        "config": load_config(),
+        "runtime_mode": "docker" if in_docker else "local",
+    }
+
+
+@app.post("/api/cli/test/{pkey}")
+async def cli_test(pkey: str, payload: dict | None = None):
+    prompt = (payload or {}).get("prompt", "OI")
+    return await test_provider(pkey, prompt)
+
+
+@app.post("/api/cli/install/{pkey}")
+async def cli_install(pkey: str):
+    return await install_provider(pkey)
+
+
+@app.put("/api/cli/config")
+async def cli_config_update(payload: dict):
+    cfg = load_config()
+    if "prefer_cli" in payload:
+        cfg["prefer_cli"] = bool(payload["prefer_cli"])
+    if "extra_paths" in payload:
+        cfg["extra_paths"] = list(payload["extra_paths"])
+    if "providers" in payload:
+        cfg["providers"] = {**cfg.get("providers", {}), **payload["providers"]}
+    save_config(cfg)
+    return {"ok": True, "config": cfg}
 
 
 @app.post("/api/conversations")
@@ -148,6 +189,11 @@ async def ws_endpoint(websocket: WebSocket, cid: str):
 @app.get("/")
 async def index():
     return FileResponse(os.path.join(WEB, "index.html"))
+
+
+@app.get("/settings")
+async def settings_page():
+    return FileResponse(os.path.join(WEB, "settings.html"))
 
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")

@@ -5,18 +5,37 @@ real** para resolver um problema, com ferramentas (web, Apify, MCP), placar de
 custo por IA, terminais ao vivo mostrando cada uma trabalhando e participação
 humana no chat. Tudo persistido em PostgreSQL. Sem login.
 
-## Subir (Docker)
+## Subir (recomendado — CLIs locais)
+
+O app roda **na sua máquina** (acessa os CLIs instalados) e só o Postgres sobe no Docker:
 
 ```bash
-cp .env.example .env        # preencha ao menos uma chave de API
-docker compose up --build
+cp .env.example .env        # opcional: ferramentas e fallback de API keys
+npm run dev
 ```
 
-Acesse **http://localhost:8000**. O Postgres sobe junto, as tabelas são criadas
-automaticamente na primeira execução.
+Acesse **http://localhost:8000** (ou **8002** se a 8000 estiver ocupada — o script avisa no terminal). Configure e teste os CLIs em **/settings**.
+
+O `npm run dev` sobe o Postgres automaticamente (`localhost:5433`) e define `DATABASE_URL` — não precisa editar o `.env` para o banco.
 
 > Sem autenticação por design — **não exponha na internet**. Rode em localhost
 > ou atrás de uma VPN/proxy com autenticação.
+
+### Outros comandos
+
+| Comando | O que faz |
+|---------|-----------|
+| `npm run dev` | App local + Postgres no Docker (padrão) |
+| `npm run docker:db` | Só Postgres (foreground) |
+| `npm run docker:up` | Stack completa no Docker (API keys; CLIs do host **não** funcionam) |
+
+## Configurar CLIs
+
+1. Instale os CLIs no seu terminal (`claude`, `codex`, `gemini`, `deepseek-tui`).
+2. Autentique cada um (`claude auth login`, `codex login`, etc.).
+3. Abra **/settings**, clique **Testar OI** e confirme a resposta.
+
+Ou use chaves de API no `.env` como fallback (desmarque "Preferir CLIs locais" em /settings).
 
 ## Como funciona
 
@@ -87,16 +106,15 @@ Edite `mcp_servers.json`:
 }
 ```
 
-Na criação da conversa, marque **MCP** nas ferramentas. (Node/npx já estão na
-imagem Docker.)
+Na criação da conversa, marque **MCP** nas ferramentas. (Node/npx necessário no PATH.)
 
-## Rodar local sem Docker
+## Rodar manualmente (sem npm run dev)
 
-Precisa de um Postgres acessível. Defina `DATABASE_URL` no `.env`, então:
+Precisa de um Postgres acessível. Com o banco Docker já rodando (`npm run docker:db`):
 
 ```bash
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/aicouncil uvicorn app.main:app --reload
 ```
 
 ## Avisos honestos
@@ -107,5 +125,5 @@ uvicorn app.main:app --reload
   (falhas não derrubam o app), mas valide com os servidores que você usar.
 - **Parar** interrompe na fronteira entre turnos; um turno já em andamento
   termina antes (há timeout nas ferramentas).
-- Os arquivos Python foram checados sintaticamente; rode `docker compose up`
-  para validar a stack completa no seu ambiente.
+- **Modo CLI** (via `npm run dev`) não usa ferramentas web/Apify/MCP nas IAs —
+  apenas texto. Para ferramentas, use API keys ou `npm run docker:up`.

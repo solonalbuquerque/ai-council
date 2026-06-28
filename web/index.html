@@ -17,6 +17,7 @@
     <span class="conn" id="status-txt">ocioso</span>
     <div class="spacer"></div>
     <span class="conn" id="conn">●&nbsp; conectando</span>
+    <a class="btn ghost" href="/settings">⚙ CLIs</a>
     <button class="btn primary" id="new-btn">+ Nova conversa</button>
   </header>
 
@@ -76,7 +77,7 @@
     <h2>Nova conversa</h2>
     <div class="sub">Defina objetivo, limites, quais IAs participam e como elas interagem.</div>
     <div id="no-keys" class="warnbox" style="display:none;">
-      Nenhuma chave de API detectada. Configure ao menos uma no <code>.env</code> (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY) e recarregue.
+      Nenhum provedor disponível. <a href="/settings" style="color:var(--gemini)">Configure os CLIs</a> (claude, codex, gemini, deepseek) ou defina chaves no <code>.env</code>.
     </div>
 
     <div class="row"><label>Título</label><input type="text" id="f-title" placeholder="Ex.: Estratégia de lançamento" /></div>

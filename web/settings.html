@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Configuração de CLIs — Conselho de IAs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div class="app settings-app">
+  <header class="appbar">
+    <div class="brand">Conselho<small>CLIs</small></div>
+    <div class="spacer"></div>
+    <a class="btn ghost" href="/">← Voltar ao app</a>
+    <button class="btn" id="btn-refresh">Atualizar</button>
+  </header>
+
+  <main class="settings-main">
+    <section class="settings-hero">
+      <h1>Configuração dos CLIs</h1>
+      <p>Use os CLIs instalados na sua máquina (Claude, Codex, Gemini, DeepSeek) em vez de chaves de API no <code>.env</code>. Autentique cada CLI no terminal e teste aqui com um <strong>OI</strong>.</p>
+      <div id="docker-warn" class="warnbox" style="display:none;"></div>
+    </section>
+
+    <section class="settings-global">
+      <label class="chk"><input type="checkbox" id="prefer-cli" checked /> Preferir CLIs locais (em vez de API keys do .env)</label>
+    </section>
+
+    <div id="cli-cards" class="cli-grid"></div>
+  </main>
+</div>
+
+<script src="/static/settings.js"></script>
+</body>
+</html>

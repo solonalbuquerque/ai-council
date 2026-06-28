@@ -2,6 +2,9 @@
   "name": "ai-council",
   "private": true,
   "scripts": {
-    "docker:up": "docker compose up --build"
+    "dev": "python scripts/dev.py",
+    "docker:db": "docker compose up db",
+    "docker:up": "docker compose --profile full up --build",
+    "settings": "echo Abra http://localhost:8000/settings"
   }
 }
