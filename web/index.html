@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Conselho de IAs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div class="app">
+  <header class="appbar">
+    <div class="brand">Conselho<small>v2</small></div>
+    <span class="led" id="led"></span>
+    <span class="conn" id="status-txt">ocioso</span>
+    <div class="spacer"></div>
+    <span class="conn" id="conn">●&nbsp; conectando</span>
+    <button class="btn primary" id="new-btn">+ Nova conversa</button>
+  </header>
+
+  <div class="body">
+    <aside class="sidebar">
+      <h3>Histórico</h3>
+      <div id="conv-list"></div>
+    </aside>
+
+    <main class="main" id="main">
+      <div class="placeholder" id="placeholder">
+        <b>Nenhuma conversa aberta</b>
+        Crie uma nova conversa para começar o debate entre as IAs.
+      </div>
+
+      <!-- conversation view (hidden until opened) -->
+      <div id="conv-view" style="display:none; flex-direction:column; min-height:0; flex:1;">
+        <div class="configbar">
+          <span class="title" id="cv-title">—</span>
+          <span class="goal" id="cv-goal" title=""></span>
+          <div class="badges" id="cv-badges"></div>
+          <div class="spacer"></div>
+          <div class="transport">
+            <button class="tbtn go" id="btn-start">▶ Iniciar</button>
+            <button class="tbtn pause" id="btn-pause" disabled>⏸ Pausar</button>
+            <button class="tbtn stop" id="btn-stop" disabled>⏹ Parar</button>
+          </div>
+        </div>
+
+        <div class="scoreboard" id="scoreboard"></div>
+
+        <div class="split">
+          <section class="col left">
+            <div class="colhead">Conversa — tempo real</div>
+            <div class="transcript" id="transcript">
+              <div class="t-empty">A transcrição aparece aqui conforme as IAs falam.</div>
+            </div>
+            <div class="human-input">
+              <input id="human-text" placeholder="Entrar na conversa como humano…" autocomplete="off" />
+              <button id="human-send">Enviar</button>
+            </div>
+          </section>
+
+          <section class="col right">
+            <div class="colhead">Terminais — cada IA trabalhando</div>
+            <div class="panes" id="panes"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- modal: nova conversa -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <h2>Nova conversa</h2>
+    <div class="sub">Defina objetivo, limites, quais IAs participam e como elas interagem.</div>
+    <div id="no-keys" class="warnbox" style="display:none;">
+      Nenhuma chave de API detectada. Configure ao menos uma no <code>.env</code> (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY) e recarregue.
+    </div>
+
+    <div class="row"><label>Título</label><input type="text" id="f-title" placeholder="Ex.: Estratégia de lançamento" /></div>
+    <div class="row"><label>Objetivo</label><textarea id="f-goal" placeholder="O que essa conversa precisa resolver?"></textarea></div>
+
+    <div class="row">
+      <label>Rodadas</label>
+      <div><input type="number" id="f-rounds" value="3" min="1" max="12" style="width:90px" /> <span class="note">quantas vezes cada IA fala</span></div>
+    </div>
+    <div class="row">
+      <label>Orçamento</label>
+      <div><input type="number" id="f-budget" value="0" min="0" step="1000" style="width:130px" /> <span class="note">limite de tokens (0 = ilimitado)</span></div>
+    </div>
+
+    <div class="row">
+      <label>Modo</label>
+      <div class="toggles">
+        <label class="chk"><input type="checkbox" id="f-sequential" checked /> Aguardar uns aos outros (sequencial)</label>
+        <span class="note">desmarcado = todas falam em paralelo</span>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Ferramentas</label>
+      <div class="toggles">
+        <label class="chk"><input type="checkbox" id="f-web" checked /> Web (busca + leitura)</label>
+        <label class="chk"><input type="checkbox" id="f-apify" /> Apify</label>
+        <label class="chk"><input type="checkbox" id="f-mcp" /> MCP</label>
+        <label class="chk"><input type="checkbox" id="f-synth" checked /> Síntese final</label>
+      </div>
+    </div>
+
+    <h4>Participantes</h4>
+    <div id="participants"></div>
+
+    <div class="actions">
+      <button class="btn ghost" id="modal-cancel">Cancelar</button>
+      <button class="btn primary" id="modal-create">Criar e abrir</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "ai-council",
+  "private": true,
+  "scripts": {
+    "docker:up": "docker compose up --build"
+  }
+}
