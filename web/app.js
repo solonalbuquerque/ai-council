@@ -18,7 +18,21 @@ const state = {
   scoreboard: {},
   status: "idle",
   urlImport: null,
+  trace: [],
+  orgModalOpen: false,
+  orgRunIndex: 1,
+  orgSelectedNode: null,
+  orgTree: null,
+  orgFlatNodes: [],
+  orgView: { panX: 40, panY: 40, zoom: 1, dragging: false, lastX: 0, lastY: 0 },
+  orgAnimFrame: null,
+  orgPulse: 0,
+  messages: [],
 };
+
+const TRACE_TYPES = new Set([
+  "run_start", "round", "turn_start", "agent_step", "log", "status", "message",
+]);
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -122,6 +136,15 @@ function wireUI() {
   $("human-send").onclick = sendHuman;
   $("human-text").addEventListener("keydown", (e) => { if (e.key === "Enter") sendHuman(); });
   $("btn-export").onclick = exportConversation;
+  $("btn-org").onclick = () => openOrgModal(state.cid);
+  $("org-close").onclick = closeOrgModal;
+  $("org-modal-bg").onclick = (e) => { if (e.target === $("org-modal-bg")) closeOrgModal(); };
+  $("org-run-select").onchange = () => {
+    state.orgRunIndex = parseInt($("org-run-select").value) || 1;
+    state.orgSelectedNode = null;
+    refreshOrgView();
+  };
+  wireOrgCanvas();
 }
 
 function exportConversation() {
@@ -138,7 +161,14 @@ async function loadConversations() {
   for (const c of list) {
     const item = el("div", "conv-item" + (c.id === state.cid ? " active" : ""));
     item.dataset.id = c.id;
-    item.appendChild(el("div", "t", esc(c.title)));
+    const head = el("div", "conv-head");
+    head.appendChild(el("div", "t", esc(c.title)));
+    const orgBtn = el("button", "conv-org", "ORG");
+    orgBtn.type = "button";
+    orgBtn.title = "Organograma de execução";
+    orgBtn.onclick = (e) => { e.stopPropagation(); openOrgModal(c.id); };
+    head.appendChild(orgBtn);
+    item.appendChild(head);
     item.appendChild(el("div", "g", esc(c.goal || "sem objetivo")));
     item.appendChild(el("div", "s", esc(c.status)));
     item.onclick = () => openConversation(c.id);
@@ -182,21 +212,42 @@ function handleEvent(msg) {
   const p = msg.payload || {};
   switch (msg.type) {
     case "snapshot": renderSnapshot(p); break;
-    case "status": setStatus(p.state); break;
-    case "round": updateBadge("round", `Rodada <b>${p.round}/${p.total}</b>`); break;
-    case "turn_start": break;
-    case "message": appendMessage(p); break;
-    case "agent_step": agentStep(p); break;
+    case "status": setStatus(p.state); pushTraceEvent("status", p); break;
+    case "round": updateBadge("round", `Rodada <b>${p.round}/${p.total}</b>`); pushTraceEvent("round", p); break;
+    case "turn_start": pushTraceEvent("turn_start", p); break;
+    case "message": appendMessage(p); pushTraceEvent("message", p); break;
+    case "agent_step": agentStep(p); pushTraceEvent("agent_step", p); break;
     case "scoreboard": state.scoreboard = p; renderScoreboard(); break;
-    case "log": logLine(p.level, p.message); break;
+    case "log": logLine(p.level, p.message); pushTraceEvent("log", p); break;
     case "error": logLine("error", p.message); setStatus("error"); break;
+    case "run_start": pushTraceEvent("run_start", p); break;
   }
+}
+
+function pushTraceEvent(type, payload) {
+  if (!TRACE_TYPES.has(type)) return;
+  const seq = payload.seq;
+  if (seq && state.trace.some((e) => e.seq === seq)) return;
+  const stored = { ...payload };
+  delete stored.trace_id;
+  delete stored.seq;
+  state.trace.push({
+    id: payload.trace_id || `local-${Date.now()}-${state.trace.length}`,
+    run_index: payload.run_index || state.orgRunIndex || 1,
+    seq: seq || state.trace.length + 1,
+    type,
+    payload: stored,
+    created_at: new Date().toISOString(),
+  });
+  if (state.orgModalOpen) refreshOrgView();
 }
 
 /* ---------------- render snapshot ---------------- */
 function renderSnapshot(c) {
   state.participants = c.participants || [];
   state.scoreboard = c.scoreboard || {};
+  state.trace = c.trace || [];
+  state.messages = c.messages || [];
   $("cv-title").textContent = c.title || "—";
   const g = $("cv-goal"); g.textContent = c.goal || ""; g.title = c.goal || "";
 
@@ -222,6 +273,7 @@ function renderSnapshot(c) {
   else for (const m of msgs) appendMessage(m, true);
 
   setStatus(c.status);
+  if (state.orgModalOpen) refreshOrgView();
 }
 
 /* ---------------- panes / terminals ---------------- */
@@ -713,6 +765,517 @@ async function createConversation() {
   } catch (e) {
     alert("Erro ao criar conversa: " + e.message);
   }
+}
+
+/* ---------------- organograma ORG ---------------- */
+const ORG_NODE_W = 148;
+const ORG_NODE_H = 42;
+const ORG_GAP_X = 24;
+const ORG_GAP_Y = 56;
+
+function orgRunsFromTrace(trace) {
+  const runs = new Set();
+  for (const e of trace) {
+    if (e.run_index) runs.add(e.run_index);
+  }
+  return [...runs].sort((a, b) => a - b);
+}
+
+function makeOrgNode(id, label, kind, status, participant, logs) {
+  return {
+    id, label, kind, status: status || "pending",
+    participant: participant || null,
+    logs: logs || [],
+    children: [],
+    x: 0, y: 0, w: ORG_NODE_W, h: ORG_NODE_H,
+  };
+}
+
+function buildOrgTree(events, runIndex, participants, messages) {
+  const filtered = events.filter((e) => (e.run_index || 1) === runIndex);
+  if (!filtered.length && messages?.length) {
+    return buildOrgTreeFromMessages(messages, runIndex);
+  }
+
+  const root = makeOrgNode("run", `Execução ${runIndex}`, "run", "pending", null, []);
+  let currentRound = null;
+  let currentTurn = null;
+  let pendingTool = null;
+  let synthTurn = null;
+  const systemLogs = [];
+
+  for (const ev of filtered) {
+    const p = ev.payload || {};
+    switch (ev.type) {
+      case "run_start":
+        root.label = `Execução ${runIndex}`;
+        root.logs = [
+          `Objetivo: ${p.goal || "—"}`,
+          `Modo: ${p.mode === "parallel" ? "Paralelo" : "Sequencial"}`,
+          `Rodadas: ${p.max_rounds || "?"}`,
+        ];
+        root.status = "active";
+        break;
+      case "round":
+        currentTurn = null;
+        pendingTool = null;
+        currentRound = makeOrgNode(
+          `round-${p.round}`, `Rodada ${p.round}/${p.total}`, "round", "done", null, [],
+        );
+        root.children.push(currentRound);
+        break;
+      case "turn_start": {
+        const parent = currentRound || root;
+        currentTurn = makeOrgNode(
+          `turn-${p.round}-${p.speaker}-${ev.seq}`,
+          p.label || p.speaker,
+          "turn",
+          "active",
+          p.speaker,
+          [`Início do turno · rodada ${p.round || "?"}`],
+        );
+        parent.children.push(currentTurn);
+        pendingTool = null;
+        break;
+      }
+      case "agent_step": {
+        const key = p.participant;
+        let turn = currentTurn;
+        if (key === "synth") {
+          if (!synthTurn) {
+            synthTurn = makeOrgNode("synth-turn", "Síntese", "turn", "active", "synth", []);
+            root.children.push(synthTurn);
+          }
+          turn = synthTurn;
+        }
+        if (!turn) {
+          turn = makeOrgNode(
+            `turn-${key}-${ev.seq}`, LABELS[key] || key, "turn", "active", key, [],
+          );
+          (currentRound || root).children.push(turn);
+          currentTurn = turn;
+        }
+        if (p.kind === "status") {
+          if (p.state === "thinking") {
+            turn.children.push(makeOrgNode(
+              `think-${ev.seq}`, "Pensando…", "step", "active", key, [],
+            ));
+            turn.status = "active";
+          } else if (p.state === "done") {
+            turn.status = "done";
+            turn.children.push(makeOrgNode(
+              `done-${ev.seq}`, "Mensagem enviada", "step", "done", key, [],
+            ));
+          } else if (p.state === "error") {
+            turn.status = "error";
+            turn.children.push(makeOrgNode(
+              `err-${ev.seq}`, "Erro no turno", "step", "error", key, [],
+            ));
+          }
+        } else if (p.kind === "tool_call") {
+          pendingTool = makeOrgNode(
+            `tool-${ev.seq}`, p.tool || "ferramenta", "tool", "active", key,
+            [`Chamada: ${p.tool}`, `Args: ${JSON.stringify(p.args || {})}`],
+          );
+          turn.children.push(pendingTool);
+        } else if (p.kind === "tool_result") {
+          if (pendingTool) {
+            pendingTool.status = "done";
+            pendingTool.logs.push(`Resultado: ${(p.preview || "").slice(0, 500)}`);
+            pendingTool = null;
+          } else {
+            turn.children.push(makeOrgNode(
+              `res-${ev.seq}`, `↳ ${p.tool || "resultado"}`, "tool", "done", key,
+              [(p.preview || "").slice(0, 500)],
+            ));
+          }
+        }
+        break;
+      }
+      case "log":
+        systemLogs.push(`[${p.level || "info"}] ${p.message || ""}`);
+        break;
+      case "status":
+        if (p.state === "done") root.status = "done";
+        else if (p.state === "error") root.status = "error";
+        else if (p.state === "stopped") root.status = "error";
+        else if (p.state === "running") root.status = "active";
+        root.logs.push(`Status: ${p.state}`);
+        break;
+      case "message":
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (systemLogs.length) {
+    const logNode = makeOrgNode("system-logs", "Log do sistema", "logs", "done", null, systemLogs);
+    root.children.push(logNode);
+  }
+
+  markOrgActiveNode(root);
+  return root;
+}
+
+function buildOrgTreeFromMessages(messages, runIndex) {
+  const root = makeOrgNode("run", `Execução ${runIndex}`, "run", "done", null, [
+    "Trace detalhado indisponível — reconstruído a partir das mensagens.",
+  ]);
+  const byRound = {};
+  for (const m of messages || []) {
+    const rnd = m.round || 0;
+    if (!byRound[rnd]) {
+      byRound[rnd] = makeOrgNode(
+        `round-${rnd}`, rnd ? `Rodada ${rnd}` : "Outros", "round", "done", null, [],
+      );
+      root.children.push(byRound[rnd]);
+    }
+    byRound[rnd].children.push(makeOrgNode(
+      `msg-${m.id}`, m.speaker_label || m.speaker_key, "turn", "done", m.speaker_key,
+      [(m.content || "").slice(0, 300)],
+    ));
+  }
+  return root;
+}
+
+function markOrgActiveNode(root) {
+  let lastActive = null;
+  const walk = (n) => {
+    if (n.status === "active") lastActive = n;
+    for (const ch of n.children) walk(ch);
+  };
+  walk(root);
+  if (lastActive && state.status === "running") return;
+  if (lastActive && state.status !== "running") {
+    lastActive.status = lastActive.status === "active" ? "done" : lastActive.status;
+  }
+}
+
+function calcOrgSubtreeW(node) {
+  if (!node.children.length) {
+    node.subtreeW = ORG_NODE_W;
+    return node.subtreeW;
+  }
+  let total = 0;
+  for (const ch of node.children) {
+    total += calcOrgSubtreeW(ch) + ORG_GAP_X;
+  }
+  node.subtreeW = Math.max(ORG_NODE_W, total - ORG_GAP_X);
+  return node.subtreeW;
+}
+
+function assignOrgPositions(node, leftX, depth) {
+  node.absY = depth * (ORG_NODE_H + ORG_GAP_Y);
+  if (!node.children.length) {
+    node.absX = leftX + node.subtreeW / 2;
+    return leftX + node.subtreeW;
+  }
+  let x = leftX;
+  for (const ch of node.children) {
+    x = assignOrgPositions(ch, x, depth + 1);
+    x += ORG_GAP_X;
+  }
+  node.absX = leftX + node.subtreeW / 2;
+  return leftX + node.subtreeW;
+}
+
+function layoutOrgTree(node) {
+  calcOrgSubtreeW(node);
+  assignOrgPositions(node, 0, 0);
+  const offset = -node.absX;
+  const shift = (n) => {
+    n.absX += offset;
+    for (const ch of n.children) shift(ch);
+  };
+  shift(node);
+}
+
+function flattenOrgTree(node, list, parent) {
+  node.parent = parent || null;
+  list.push(node);
+  for (const ch of node.children) flattenOrgTree(ch, list, node);
+}
+
+function orgNodeColor(node) {
+  if (node.participant) return providerColor(node.participant);
+  if (node.kind === "run") return "#5b8def";
+  if (node.kind === "round") return "#46c6d8";
+  if (node.kind === "logs") return "#888";
+  return "#666";
+}
+
+function orgStatusStroke(status) {
+  return { pending: "#3a4050", active: "#9d7bf0", done: "#19c39c", error: "#e05c5c" }[status] || "#3a4050";
+}
+
+function drawOrgCanvas() {
+  const canvas = $("org-canvas");
+  const wrap = $("org-canvas-wrap");
+  if (!canvas || !wrap || !state.orgTree) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = wrap.getBoundingClientRect();
+  canvas.width = Math.max(1, rect.width * dpr);
+  canvas.height = Math.max(480, rect.height) * dpr;
+  canvas.style.height = Math.max(480, rect.height) + "px";
+
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+
+  layoutOrgTree(state.orgTree);
+  const flat = [];
+  flattenOrgTree(state.orgTree, flat);
+  state.orgFlatNodes = flat;
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const n of flat) {
+    const x = n.absX;
+    const y = n.absY;
+    minX = Math.min(minX, x - ORG_NODE_W / 2);
+    maxX = Math.max(maxX, x + ORG_NODE_W / 2);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y + ORG_NODE_H);
+  }
+
+  const treeW = maxX - minX + 80;
+  const treeH = maxY - minY + 80;
+  if (!state.orgView._centered) {
+    state.orgView.panX = (rect.width - treeW * state.orgView.zoom) / 2 - minX * state.orgView.zoom + 40;
+    state.orgView.panY = 40 - minY * state.orgView.zoom;
+    state.orgView._centered = true;
+  }
+
+  ctx.save();
+  ctx.translate(state.orgView.panX, state.orgView.panY);
+  ctx.scale(state.orgView.zoom, state.orgView.zoom);
+
+  for (const n of flat) {
+    if (!n.parent) continue;
+    const px = n.parent.absX;
+    const py = n.parent.absY + ORG_NODE_H;
+    const cx = n.absX;
+    const cy = n.absY;
+    ctx.strokeStyle = "#2a3142";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px, py + (ORG_GAP_Y - ORG_NODE_H) / 2);
+    ctx.lineTo(cx, py + (ORG_GAP_Y - ORG_NODE_H) / 2);
+    ctx.lineTo(cx, cy);
+    ctx.stroke();
+  }
+
+  for (const n of flat) {
+    const x = n.absX - ORG_NODE_W / 2;
+    const y = n.absY;
+    const accent = orgNodeColor(n);
+    const stroke = orgStatusStroke(n.status);
+    ctx.fillStyle = "#12151c";
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = n.id === state.orgSelectedNode?.id ? 2.5 : 1.5;
+    roundRect(ctx, x, y, ORG_NODE_W, ORG_NODE_H, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = accent;
+    ctx.fillRect(x, y, 4, ORG_NODE_H);
+
+    if (n.status === "active" && state.status === "running") {
+      ctx.strokeStyle = "#9d7bf0";
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.35 + 0.35 * Math.sin(state.orgPulse);
+      roundRect(ctx, x - 2, y - 2, ORG_NODE_W + 4, ORG_NODE_H + 4, 10);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.fillStyle = "#e8eaef";
+    ctx.font = "600 11px JetBrains Mono, monospace";
+    const label = n.label.length > 18 ? n.label.slice(0, 17) + "…" : n.label;
+    ctx.fillText(label, x + 10, y + 18);
+    ctx.fillStyle = "#5d6478";
+    ctx.font = "9px JetBrains Mono, monospace";
+    ctx.fillText(n.kind, x + 10, y + 32);
+  }
+
+  ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function hitTestOrgCanvas(clientX, clientY) {
+  const canvas = $("org-canvas");
+  const wrap = $("org-canvas-wrap");
+  if (!canvas || !wrap) return null;
+  const rect = canvas.getBoundingClientRect();
+  const x = (clientX - rect.left - state.orgView.panX) / state.orgView.zoom;
+  const y = (clientY - rect.top - state.orgView.panY) / state.orgView.zoom;
+  for (let i = state.orgFlatNodes.length - 1; i >= 0; i--) {
+    const n = state.orgFlatNodes[i];
+    const nx = n.absX - ORG_NODE_W / 2;
+    const ny = n.absY;
+    if (x >= nx && x <= nx + ORG_NODE_W && y >= ny && y <= ny + ORG_NODE_H) return n;
+  }
+  return null;
+}
+
+function renderOrgLogPanel(node) {
+  const empty = $("org-log-empty");
+  const content = $("org-log-content");
+  if (!node) {
+    empty.style.display = "block";
+    content.style.display = "none";
+    return;
+  }
+  empty.style.display = "none";
+  content.style.display = "block";
+  const lines = (node.logs || []).map((l) => `<div class="log-line">${esc(l)}</div>`).join("");
+  content.innerHTML =
+    `<div class="log-h">${esc(node.label)} <span style="color:var(--muted)">(${esc(node.kind)})</span></div>` +
+    (lines || `<div class="log-line" style="color:var(--muted)">Sem logs adicionais.</div>`);
+}
+
+function refreshOrgView() {
+  const runs = orgRunsFromTrace(state.trace);
+  const sel = $("org-run-select");
+  sel.innerHTML = "";
+  if (runs.length > 1) {
+    sel.style.display = "inline-block";
+    for (const r of runs) {
+      const opt = document.createElement("option");
+      opt.value = r;
+      opt.textContent = `Execução ${r}`;
+      if (r === state.orgRunIndex) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  } else {
+    sel.style.display = "none";
+    if (runs.length) state.orgRunIndex = runs[runs.length - 1];
+  }
+
+  const msgs = [];
+  state.orgTree = buildOrgTree(state.trace, state.orgRunIndex, state.participants, state.messages);
+  const warn = $("org-warn");
+  const hasDetail = state.trace.some((e) => e.run_index === state.orgRunIndex);
+  if (!hasDetail && state.participants.length) {
+    warn.style.display = "block";
+    warn.textContent = "Trace detalhado indisponível para esta execução — organograma reconstruído a partir das mensagens.";
+  } else {
+    warn.style.display = "none";
+  }
+
+  state.orgView._centered = false;
+  drawOrgCanvas();
+  if (state.orgSelectedNode) {
+    const found = state.orgFlatNodes.find((n) => n.id === state.orgSelectedNode.id);
+    renderOrgLogPanel(found || null);
+  }
+  startOrgAnim();
+}
+
+function startOrgAnim() {
+  stopOrgAnim();
+  if (!state.orgModalOpen || state.status !== "running") return;
+  const tick = () => {
+    state.orgPulse += 0.08;
+    drawOrgCanvas();
+    state.orgAnimFrame = requestAnimationFrame(tick);
+  };
+  state.orgAnimFrame = requestAnimationFrame(tick);
+}
+
+function stopOrgAnim() {
+  if (state.orgAnimFrame) {
+    cancelAnimationFrame(state.orgAnimFrame);
+    state.orgAnimFrame = null;
+  }
+}
+
+function wireOrgCanvas() {
+  const wrap = $("org-canvas-wrap");
+  const canvas = $("org-canvas");
+  if (!wrap || !canvas) return;
+
+  wrap.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    state.orgView.dragging = true;
+    state.orgView.lastX = e.clientX;
+    state.orgView.lastY = e.clientY;
+    wrap.classList.add("dragging");
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!state.orgView.dragging) return;
+    state.orgView.panX += e.clientX - state.orgView.lastX;
+    state.orgView.panY += e.clientY - state.orgView.lastY;
+    state.orgView.lastX = e.clientX;
+    state.orgView.lastY = e.clientY;
+    drawOrgCanvas();
+  });
+  window.addEventListener("mouseup", () => {
+    state.orgView.dragging = false;
+    wrap.classList.remove("dragging");
+  });
+  wrap.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    state.orgView.zoom = Math.min(2.5, Math.max(0.35, state.orgView.zoom * delta));
+    drawOrgCanvas();
+  }, { passive: false });
+  canvas.addEventListener("click", (e) => {
+    if (state.orgView.dragging) return;
+    const node = hitTestOrgCanvas(e.clientX, e.clientY);
+    state.orgSelectedNode = node;
+    renderOrgLogPanel(node);
+    drawOrgCanvas();
+  });
+  window.addEventListener("resize", () => {
+    if (state.orgModalOpen) drawOrgCanvas();
+  });
+}
+
+async function openOrgModal(cid) {
+  const target = cid || state.cid;
+  if (!target) { alert("Selecione uma conversa primeiro."); return; }
+  if (target !== state.cid) await openConversation(target);
+  try {
+    const full = await api(`/api/conversations/${state.cid}`);
+    state.trace = full.trace || [];
+    state.messages = full.messages || [];
+    state.participants = full.participants || state.participants;
+  } catch (e) {
+    try {
+      const data = await api(`/api/conversations/${state.cid}/trace`);
+      state.trace = data.trace || state.trace;
+    } catch (e2) { /* mantém estado atual */ }
+  }
+  const runs = orgRunsFromTrace(state.trace);
+  state.orgRunIndex = runs.length ? runs[runs.length - 1] : 1;
+  state.orgSelectedNode = null;
+  state.orgView = { panX: 40, panY: 40, zoom: 1, dragging: false, lastX: 0, lastY: 0 };
+  state.orgModalOpen = true;
+  $("org-modal-bg").classList.add("open");
+  renderOrgLogPanel(null);
+  refreshOrgView();
+}
+
+function closeOrgModal() {
+  state.orgModalOpen = false;
+  $("org-modal-bg").classList.remove("open");
+  stopOrgAnim();
 }
 
 init();

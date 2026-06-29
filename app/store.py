@@ -161,6 +161,56 @@ async def scoreboard(cid: str) -> dict:
         return await _scoreboard(s, cid)
 
 
+def _trace_event(e: models.ExecutionEvent) -> dict:
+    return {
+        "id": e.id,
+        "run_index": e.run_index,
+        "seq": e.seq,
+        "type": e.type,
+        "payload": e.payload,
+        "created_at": e.created_at.isoformat(),
+    }
+
+
+async def next_run_index(cid: str) -> int:
+    async with Session() as s:
+        row = (await s.execute(
+            select(func.coalesce(func.max(models.ExecutionEvent.run_index), 0))
+            .where(models.ExecutionEvent.conversation_id == cid)
+        )).scalar_one()
+        return int(row) + 1
+
+
+async def save_execution_event(cid: str, run_index: int, type_: str, payload: dict) -> dict:
+    async with Session() as s:
+        row = (await s.execute(
+            select(func.coalesce(func.max(models.ExecutionEvent.seq), 0))
+            .where(models.ExecutionEvent.conversation_id == cid)
+        )).scalar_one()
+        seq = int(row) + 1
+        e = models.ExecutionEvent(
+            conversation_id=cid,
+            run_index=run_index,
+            seq=seq,
+            type=type_,
+            payload=payload,
+        )
+        s.add(e)
+        await s.commit()
+        await s.refresh(e)
+        return _trace_event(e)
+
+
+async def get_execution_trace(cid: str) -> list[dict]:
+    async with Session() as s:
+        rows = (await s.execute(
+            select(models.ExecutionEvent)
+            .where(models.ExecutionEvent.conversation_id == cid)
+            .order_by(models.ExecutionEvent.seq)
+        )).scalars().all()
+        return [_trace_event(e) for e in rows]
+
+
 async def get_conversation_full(cid: str) -> dict | None:
     async with Session() as s:
         c = await s.get(models.Conversation, cid)
@@ -176,6 +226,11 @@ async def get_conversation_full(cid: str) -> dict | None:
             .where(models.Message.conversation_id == cid)
             .order_by(models.Message.created_at)
         )).scalars().all()
+        trace_rows = (await s.execute(
+            select(models.ExecutionEvent)
+            .where(models.ExecutionEvent.conversation_id == cid)
+            .order_by(models.ExecutionEvent.seq)
+        )).scalars().all()
         return {
             "id": c.id, "title": c.title, "goal": c.goal, "mode": c.mode,
             "max_rounds": c.max_rounds, "token_budget": c.token_budget,
@@ -188,6 +243,7 @@ async def get_conversation_full(cid: str) -> dict | None:
             ],
             "messages": [_msg(m) for m in msgs],
             "scoreboard": await _scoreboard(s, cid),
+            "trace": [_trace_event(e) for e in trace_rows],
         }
 
 

@@ -30,10 +30,11 @@ def build_prompt(goal, transcript, label, others, can_interact, persona):
 
 
 class Runner:
-    def __init__(self, conv_id, emit, mcp_tools=None):
+    def __init__(self, conv_id, emit, mcp_tools=None, run_index=1):
         self.conv_id = conv_id
         self.emit = emit  # async (type:str, payload:dict)
         self.mcp_tools = mcp_tools or []
+        self.run_index = run_index
         self._gate = asyncio.Event()
         self._gate.set()
         self._stopped = False
@@ -111,6 +112,12 @@ class Runner:
             conv = await store.get_conversation_full(self.conv_id)
             if not conv:
                 return
+            await self.emit("run_start", {
+                "run_index": self.run_index,
+                "goal": conv["goal"],
+                "mode": conv["mode"],
+                "max_rounds": conv["max_rounds"],
+            })
             parts = [p for p in conv["participants"] if p["active"]]
             providers = {}
             for p in parts:
@@ -222,7 +229,12 @@ class Runner:
 async def start_runner(conv_id, emit, mcp_tools=None) -> "Runner":
     if conv_id in RUNNERS:
         return RUNNERS[conv_id]
-    r = Runner(conv_id, emit, mcp_tools)
+    run_index = await store.next_run_index(conv_id)
+
+    async def run_emit(type_: str, payload: dict):
+        await emit(type_, {**payload, "run_index": run_index})
+
+    r = Runner(conv_id, run_emit, mcp_tools, run_index)
     RUNNERS[conv_id] = r
     asyncio.create_task(r.run())
     return r

@@ -74,6 +74,22 @@ class Hub:
 
 hub = Hub()
 
+TRACE_TYPES = frozenset({
+    "run_start", "round", "turn_start", "agent_step", "log", "status", "message",
+})
+
+
+def _trace_payload(type_: str, payload: dict) -> dict:
+    if type_ == "message":
+        return {
+            "message_id": payload.get("id"),
+            "speaker_key": payload.get("speaker_key"),
+            "speaker_label": payload.get("speaker_label"),
+            "round": payload.get("round"),
+            "role": payload.get("role"),
+        }
+    return payload
+
 
 # ------------------------------- REST ---------------------------------
 @app.get("/api/catalog")
@@ -209,6 +225,14 @@ async def generate_conversation_title(cid: str, payload: dict | None = None):
     return {"title": title}
 
 
+@app.get("/api/conversations/{cid}/trace")
+async def get_conversation_trace(cid: str):
+    full = await store.get_conversation_full(cid)
+    if not full:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"trace": full.get("trace") or []}
+
+
 @app.get("/api/conversations/{cid}/export")
 async def export_conversation(cid: str):
     full = await store.get_conversation_full(cid)
@@ -230,6 +254,12 @@ async def ws_endpoint(websocket: WebSocket, cid: str):
     hub.join(cid, websocket)
 
     async def emit(type_: str, payload: dict, _cid=cid):
+        if type_ in TRACE_TYPES:
+            run_idx = int(payload.get("run_index") or 0)
+            saved = await store.save_execution_event(
+                _cid, run_idx, type_, _trace_payload(type_, payload),
+            )
+            payload = {**payload, "trace_id": saved["id"], "seq": saved["seq"]}
         await hub.broadcast(_cid, {"type": type_, "payload": payload})
 
     try:

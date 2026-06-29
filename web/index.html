@@ -49,6 +49,7 @@
             <button class="tbtn go" id="btn-start">▶ Iniciar</button>
             <button class="tbtn pause" id="btn-pause" disabled>⏸ Pausar</button>
             <button class="tbtn stop" id="btn-stop" disabled>⏹ Parar</button>
+            <button class="tbtn org" id="btn-org" title="Organograma de execução">ORG</button>
             <button class="tbtn" id="btn-export" title="Baixar a conversa completa em JSON">⬇ Exportar JSON</button>
           </div>
         </div>
@@ -195,6 +196,39 @@
           </div>
         </div>
       </section>
+    </div>
+  </div>
+</div>
+
+<!-- modal: organograma ORG -->
+<div class="modal-bg" id="org-modal-bg">
+  <div class="modal modal-lg org-modal">
+    <div class="org-head">
+      <div>
+        <h2>Organograma de execução</h2>
+        <div class="sub" id="org-sub">Caminho percorrido pelas IAs até o resultado.</div>
+      </div>
+      <div class="org-head-actions">
+        <select id="org-run-select" class="org-run-select" style="display:none"></select>
+        <button class="btn ghost" id="org-close">Fechar</button>
+      </div>
+    </div>
+    <div id="org-warn" class="warnbox" style="display:none;"></div>
+    <div class="org-legend">
+      <span class="org-leg pending"><i></i> pendente</span>
+      <span class="org-leg active"><i></i> em andamento</span>
+      <span class="org-leg done"><i></i> concluído</span>
+      <span class="org-leg error"><i></i> erro</span>
+    </div>
+    <div class="org-body">
+      <div class="org-canvas-wrap" id="org-canvas-wrap">
+        <canvas id="org-canvas"></canvas>
+      </div>
+      <aside class="org-log-panel" id="org-log-panel">
+        <div class="org-log-title">Detalhes</div>
+        <div class="org-log-empty" id="org-log-empty">Clique em um nó para ver os logs.</div>
+        <div class="org-log-content" id="org-log-content" style="display:none"></div>
+      </aside>
     </div>
   </div>
 </div>
