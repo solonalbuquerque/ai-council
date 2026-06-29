@@ -164,6 +164,15 @@ input, select, textarea { font-family: inherit; }
 .human-input input:focus { outline: none; border-color: var(--human); }
 .human-input button { border: 1px solid var(--human); color: var(--human); background: transparent;
   border-radius: 8px; padding: 0 16px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+.human-status {
+  padding: 6px 12px 10px; font-size: 10px; line-height: 1.5; color: var(--muted);
+  border-top: 1px solid var(--line-soft); background: var(--panel); min-height: 1.4em;
+}
+.human-status.idle { color: var(--muted-2); }
+.human-status.queued { color: var(--human); }
+.human-status.processing { color: var(--gemini); }
+.human-status.done { color: var(--ok); }
+.human-status.warn { color: var(--warn); }
 
 /* terminals */
 .panes { flex: 1; overflow-y: auto; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start; }

@@ -8,6 +8,12 @@ from app.tools import build_tools
 # conversa_id -> Runner ativo
 RUNNERS: dict[str, "Runner"] = {}
 
+FOLLOWUP_SYSTEM = (
+    "Você continua a conversa com o humano após o debate do conselho. "
+    "Responda diretamente ao que o humano disse, com base no contexto. "
+    "Seja claro e conversacional. Responda no idioma do objetivo."
+)
+
 
 def build_prompt(goal, transcript, label, others, can_interact, persona):
     interact = (
@@ -29,17 +35,35 @@ def build_prompt(goal, transcript, label, others, can_interact, persona):
     return system, user
 
 
+def _build_transcript(messages: list) -> list[tuple[str, str]]:
+    return [
+        (m["speaker_label"], m["content"])
+        for m in messages
+        if m["role"] in ("participant", "human", "synthesis")
+    ]
+
+
+def _pick_responder(conv: dict, parts: list) -> tuple[dict, str, str]:
+    if conv["config"].get("synthesize", True):
+        p = parts[0]
+        return p, "synth", "Síntese"
+    p = parts[-1]
+    return p, p["pkey"], p["label"]
+
+
 class Runner:
-    def __init__(self, conv_id, emit, mcp_tools=None, run_index=1):
+    def __init__(self, conv_id, emit, mcp_tools=None, run_index=1, followup=False):
         self.conv_id = conv_id
         self.emit = emit  # async (type:str, payload:dict)
         self.mcp_tools = mcp_tools or []
         self.run_index = run_index
+        self.followup = followup
         self._gate = asyncio.Event()
         self._gate.set()
         self._stopped = False
-        self.human_q: asyncio.Queue[str] = asyncio.Queue()
+        self.human_q: asyncio.Queue[dict] = asyncio.Queue()
         self.total_tokens = 0
+        self.pending_human_id: str | None = None
 
     # ---- controles ----
     def pause(self):
@@ -52,8 +76,8 @@ class Runner:
         self._stopped = True
         self._gate.set()
 
-    def add_human(self, text: str):
-        self.human_q.put_nowait(text)
+    def add_human(self, message_id: str, text: str):
+        self.human_q.put_nowait({"id": message_id, "text": text})
 
     async def _checkpoint(self) -> bool:
         if self._stopped:
@@ -66,12 +90,29 @@ class Runner:
             await self.emit("status", {"state": "running"})
         return True
 
-    def _drain_human(self, transcript: list):
+    async def _drain_human(self, transcript: list):
         """Mensagens humanas já foram salvas/transmitidas pela camada WS;
-        aqui só entram na transcrição que as IAs veem."""
+        aqui entram na transcrição que as IAs veem."""
+        delivered = []
         while not self.human_q.empty():
-            text = self.human_q.get_nowait()
-            transcript.append(("Humano", text))
+            item = self.human_q.get_nowait()
+            transcript.append(("Humano", item["text"]))
+            delivered.append(item)
+        for item in delivered:
+            await self.emit("human_ack", {
+                "message_id": item["id"],
+                "status": "delivered",
+                "detail": "Entregue — incluída no contexto das IAs.",
+                "responder": None,
+            })
+
+    async def _emit_human_ack(self, message_id, status, detail, responder=None):
+        await self.emit("human_ack", {
+            "message_id": message_id,
+            "status": status,
+            "detail": detail,
+            "responder": responder,
+        })
 
     # ---- um turno de uma IA ----
     async def _turn(self, p, prov, goal, transcript, names, tools, rnd):
@@ -106,6 +147,52 @@ class Runner:
         await self.emit("scoreboard", await store.scoreboard(self.conv_id))
         return res
 
+    async def _run_followup_turn(self, conv, parts, providers, transcript, responder_label):
+        resp_p, resp_key, resp_label = _pick_responder(conv, parts)
+        prov = providers[resp_p["pkey"]]
+        use_synth = conv["config"].get("synthesize", True)
+
+        convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript)
+        user = (
+            f"OBJETIVO:\n{conv['goal']}\n\nCONVERSA:\n{convo}\n\n"
+            f"Responda ao humano como {responder_label}."
+        )
+
+        await self.emit("agent_step",
+                        {"participant": resp_key, "kind": "status", "state": "thinking"})
+
+        async def step(kind, payload):
+            await self.emit("agent_step", {"participant": resp_key, "kind": kind, **payload})
+
+        res = await prov.run(FOLLOWUP_SYSTEM, user, [], step)
+        self.total_tokens += res.input_tokens + res.output_tokens
+
+        if use_synth:
+            m = await store.save_message(
+                self.conv_id, 0, "synth", "Síntese", "synthesis", res.text,
+                {"model": prov.model, "followup": True},
+            )
+            usage_key = "synth"
+            rnd = 0
+        else:
+            m = await store.save_message(
+                self.conv_id, 0, resp_key, resp_label, "participant", res.text,
+                {"model": prov.model, "followup": True},
+            )
+            usage_key = resp_key
+            rnd = 0
+
+        await store.save_usage(
+            self.conv_id, usage_key, rnd, res.input_tokens,
+            res.output_tokens, res.cost_usd, res.tool_calls,
+        )
+        await self.emit("message", m)
+        await self.emit("agent_step",
+                        {"participant": resp_key, "kind": "status", "state": "done"})
+        await self.emit("scoreboard", await store.scoreboard(self.conv_id))
+        transcript.append((resp_label, res.text))
+        return resp_label
+
     # ---- loop principal ----
     async def run(self):
         try:
@@ -135,11 +222,7 @@ class Runner:
 
             tools = build_tools(conv["config"], self.mcp_tools)
             names = [p["label"] for p in parts]
-            transcript = [
-                (m["speaker_label"], m["content"])
-                for m in conv["messages"]
-                if m["role"] in ("participant", "human", "synthesis")
-            ]
+            transcript = _build_transcript(conv["messages"])
 
             await store.set_status(self.conv_id, "running")
             await self.emit("status", {"state": "running"})
@@ -149,7 +232,7 @@ class Runner:
                 if not await self._checkpoint():
                     break
                 await self.emit("round", {"round": rnd, "total": conv["max_rounds"]})
-                self._drain_human(transcript)
+                await self._drain_human(transcript)
 
                 if conv["mode"] == "parallel":
                     snapshot = list(transcript)
@@ -172,7 +255,7 @@ class Runner:
                     for p in parts:
                         if not await self._checkpoint():
                             break
-                        self._drain_human(transcript)
+                        await self._drain_human(transcript)
                         res = await self._turn(
                             p, providers[p["pkey"]], conv["goal"], transcript, names, tools, rnd)
                         if res is not None:
@@ -225,6 +308,85 @@ class Runner:
         finally:
             RUNNERS.pop(self.conv_id, None)
 
+    async def run_followup(self, trigger_message_id: str | None = None):
+        try:
+            conv = await store.get_conversation_full(self.conv_id)
+            if not conv:
+                return
+
+            parts = [p for p in conv["participants"] if p["active"]]
+            providers = {}
+            for p in parts:
+                prov = make_provider(p["pkey"], p["model"])
+                if prov:
+                    providers[p["pkey"]] = prov
+            parts = [p for p in parts if p["pkey"] in providers]
+            if not parts:
+                await self.emit("error", {"message": "Nenhuma IA ativa com chave de API."})
+                if trigger_message_id:
+                    await self._emit_human_ack(
+                        trigger_message_id, "answered",
+                        "Não foi possível responder — nenhuma IA disponível.",
+                    )
+                return
+
+            _, _, responder_label = _pick_responder(conv, parts)
+            transcript = _build_transcript(conv["messages"])
+
+            await store.set_status(self.conv_id, "running")
+            await self.emit("status", {"state": "running"})
+
+            pending_ids = []
+            if trigger_message_id:
+                pending_ids.append(trigger_message_id)
+
+            while pending_ids or not self.human_q.empty():
+                while not self.human_q.empty():
+                    item = self.human_q.get_nowait()
+                    pending_ids.append(item["id"])
+
+                message_id = pending_ids.pop(0)
+                self.pending_human_id = message_id
+
+                conv = await store.get_conversation_full(self.conv_id)
+                if conv:
+                    transcript = _build_transcript(conv["messages"])
+                    _, _, responder_label = _pick_responder(conv, parts)
+
+                await self._emit_human_ack(
+                    message_id, "processing",
+                    f"{responder_label} está respondendo ao humano…",
+                    responder_label,
+                )
+
+                try:
+                    await self._run_followup_turn(conv, parts, providers, transcript, responder_label)
+                    await self._emit_human_ack(
+                        message_id, "answered",
+                        "Resposta enviada. Você pode continuar a conversa.",
+                        responder_label,
+                    )
+                except Exception as e:
+                    await self.emit("log", {"level": "error", "message": str(e)})
+                    await self._emit_human_ack(
+                        message_id, "answered",
+                        f"Erro ao responder: {e}",
+                        responder_label,
+                    )
+
+            await store.set_status(self.conv_id, "done")
+            await self.emit("status", {"state": "done"})
+
+        except asyncio.CancelledError:
+            await store.set_status(self.conv_id, "stopped")
+            await self.emit("status", {"state": "stopped"})
+            raise
+        except Exception as e:
+            await store.set_status(self.conv_id, "error")
+            await self.emit("error", {"message": str(e)})
+        finally:
+            RUNNERS.pop(self.conv_id, None)
+
 
 async def start_runner(conv_id, emit, mcp_tools=None) -> "Runner":
     if conv_id in RUNNERS:
@@ -232,9 +394,33 @@ async def start_runner(conv_id, emit, mcp_tools=None) -> "Runner":
     run_index = await store.next_run_index(conv_id)
 
     async def run_emit(type_: str, payload: dict):
-        await emit(type_, {**payload, "run_index": run_index})
+        if type_ == "human_ack":
+            await emit(type_, payload)
+        else:
+            await emit(type_, {**payload, "run_index": run_index})
 
     r = Runner(conv_id, run_emit, mcp_tools, run_index)
     RUNNERS[conv_id] = r
     asyncio.create_task(r.run())
+    return r
+
+
+async def start_followup_runner(
+    conv_id, emit, mcp_tools=None, trigger_message_id: str | None = None,
+) -> "Runner":
+    if conv_id in RUNNERS:
+        r = RUNNERS[conv_id]
+        return r
+
+    run_index = await store.next_run_index(conv_id)
+
+    async def followup_emit(type_: str, payload: dict):
+        if type_ == "human_ack":
+            await emit(type_, payload)
+        else:
+            await emit(type_, {**payload, "run_index": run_index})
+
+    r = Runner(conv_id, followup_emit, mcp_tools, run_index, followup=True)
+    RUNNERS[conv_id] = r
+    asyncio.create_task(r.run_followup(trigger_message_id))
     return r

@@ -28,6 +28,8 @@ const state = {
   orgAnimFrame: null,
   orgPulse: 0,
   messages: [],
+  humanFeedback: { text: "", kind: "idle" },
+  hasPriorExecution: false,
 };
 
 const TRACE_TYPES = new Set([
@@ -203,8 +205,59 @@ function send(obj) {
 function sendHuman() {
   const inp = $("human-text"); const text = inp.value.trim();
   if (!text) return;
+  setHumanFeedback("Enviando…", "processing");
   send({ action: "human", text });
   inp.value = "";
+}
+
+function setHumanFeedback(text, kind) {
+  state.humanFeedback = { text: text || "", kind: kind || "idle" };
+  const el = $("human-status");
+  if (!el) return;
+  el.textContent = text || "";
+  el.className = "human-status" + (kind ? " " + kind : "");
+}
+
+function updateHumanInputHint() {
+  if (state.humanFeedback.kind !== "idle") return;
+  let hint = "";
+  let kind = "idle";
+  if (state.status === "running") {
+    hint = "Durante a execução, as IAs lerão sua mensagem no próximo turno.";
+    kind = "queued";
+  } else if (state.status === "paused") {
+    hint = "Execução pausada — mensagem ficará na fila até retomar.";
+    kind = "warn";
+  } else if (state.hasPriorExecution && (state.status === "done" || state.status === "stopped")) {
+    hint = "Após o debate, a Síntese (ou última IA) responde diretamente ao humano.";
+  } else if (state.status === "idle") {
+    hint = "Sua mensagem entrará na conversa ao clicar Iniciar.";
+  }
+  setHumanFeedback(hint, kind);
+}
+
+function handleHumanAck(p) {
+  const kindMap = {
+    pending_start: "warn",
+    queued: "queued",
+    delivered: "done",
+    processing: "processing",
+    answered: "done",
+  };
+  setHumanFeedback(p.detail || "", kindMap[p.status] || "idle");
+  if (p.status === "delivered" || p.status === "answered") {
+    setTimeout(() => {
+      state.humanFeedback = { text: "", kind: "idle" };
+      updateHumanInputHint();
+    }, 4000);
+  }
+}
+
+function computeHasPriorExecution(c) {
+  const msgs = c?.messages || [];
+  if (msgs.some((m) => m.role === "participant" || m.role === "synthesis")) return true;
+  const trace = c?.trace || [];
+  return trace.some((e) => e.type === "run_start");
 }
 
 /* ---------------- event router ---------------- */
@@ -221,6 +274,7 @@ function handleEvent(msg) {
     case "log": logLine(p.level, p.message); pushTraceEvent("log", p); break;
     case "error": logLine("error", p.message); setStatus("error"); break;
     case "run_start": pushTraceEvent("run_start", p); break;
+    case "human_ack": handleHumanAck(p); break;
   }
 }
 
@@ -248,6 +302,7 @@ function renderSnapshot(c) {
   state.scoreboard = c.scoreboard || {};
   state.trace = c.trace || [];
   state.messages = c.messages || [];
+  state.hasPriorExecution = computeHasPriorExecution(c);
   $("cv-title").textContent = c.title || "—";
   const g = $("cv-goal"); g.textContent = c.goal || ""; g.title = c.goal || "";
 
@@ -273,6 +328,8 @@ function renderSnapshot(c) {
   else for (const m of msgs) appendMessage(m, true);
 
   setStatus(c.status);
+  state.humanFeedback = { text: "", kind: "idle" };
+  updateHumanInputHint();
   if (state.orgModalOpen) refreshOrgView();
 }
 
@@ -412,6 +469,7 @@ function setStatus(stateStr) {
   $("btn-pause").disabled = !(running || paused);
   $("btn-pause").innerHTML = paused ? "▶ Retomar" : "⏸ Pausar";
   $("btn-stop").disabled = !(running || paused);
+  updateHumanInputHint();
 }
 function updateBadge(which, html) {
   if (which === "round") { const b = $("bdg-round"); if (b) b.innerHTML = html; }

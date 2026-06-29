@@ -15,7 +15,7 @@ from app.catalog import PROVIDER_CATALOG
 from app.cli_runner import all_statuses, install_provider, launch_login, load_config, save_config, save_token, test_provider
 from app.db import init_db
 from app.title_gen import generate_title
-from app.orchestrator import RUNNERS, start_runner
+from app.orchestrator import RUNNERS, start_followup_runner, start_runner
 from app.providers import available_providers
 
 load_dotenv()
@@ -286,8 +286,31 @@ async def ws_endpoint(websocket: WebSocket, cid: str):
                 if text:
                     m = await store.save_message(cid, 0, "human", "Humano", "human", text)
                     await hub.broadcast(cid, {"type": "message", "payload": m})
+                    r = RUNNERS.get(cid)
                     if r:
-                        r.add_human(text)
+                        r.add_human(m["id"], text)
+                        if not r._gate.is_set():
+                            detail = "Execução pausada — mensagem na fila até retomar."
+                        elif r.followup:
+                            detail = "Na fila — será respondida após a resposta atual."
+                        else:
+                            detail = "Na fila — as IAs lerão no próximo turno da rodada em andamento."
+                        await emit("human_ack", {
+                            "message_id": m["id"],
+                            "status": "queued",
+                            "detail": detail,
+                            "responder": None,
+                        })
+                    elif await store.has_prior_execution(cid):
+                        mcp_tools = app.state.mcp.tools if app.state.mcp else []
+                        await start_followup_runner(cid, emit, mcp_tools, m["id"])
+                    else:
+                        await emit("human_ack", {
+                            "message_id": m["id"],
+                            "status": "pending_start",
+                            "detail": "Mensagem salva — será lida quando você clicar Iniciar.",
+                            "responder": None,
+                        })
     except WebSocketDisconnect:
         hub.leave(cid, websocket)
     except Exception:

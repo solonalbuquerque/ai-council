@@ -275,6 +275,25 @@ async def set_status(cid: str, status: str):
             await s.commit()
 
 
+async def has_prior_execution(cid: str) -> bool:
+    async with Session() as s:
+        msg = (await s.execute(
+            select(models.Message.id)
+            .where(models.Message.conversation_id == cid)
+            .where(models.Message.role.in_(["participant", "synthesis"]))
+            .limit(1)
+        )).first()
+        if msg:
+            return True
+        ev = (await s.execute(
+            select(models.ExecutionEvent.id)
+            .where(models.ExecutionEvent.conversation_id == cid)
+            .where(models.ExecutionEvent.type == "run_start")
+            .limit(1)
+        )).first()
+        return ev is not None
+
+
 async def update_title(cid: str, title: str) -> bool:
     async with Session() as s:
         c = await s.get(models.Conversation, cid)
