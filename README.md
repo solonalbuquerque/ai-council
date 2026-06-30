@@ -1,97 +1,96 @@
-# Conselho de IAs — v2
+# AI Council — v2
 
-Plataforma onde várias IAs (Claude, ChatGPT, Gemini, DeepSeek) **debatem em tempo
-real** para resolver um problema, com ferramentas (web, Apify, MCP), placar de
-custo por IA, terminais ao vivo mostrando cada uma trabalhando e participação
-humana no chat. Tudo persistido em PostgreSQL. Sem login.
+Platform where multiple AIs (Claude, ChatGPT, Gemini, DeepSeek) **debate in real time**
+to solve a problem, with tools (web, Apify, MCP), per-AI cost scoreboard, live terminals
+showing each one at work, and human participation in chat. Everything persisted in PostgreSQL. No login.
 
-## Subir (recomendado — CLIs locais)
+## Run (recommended — local CLIs)
 
-O app roda **na sua máquina** (acessa os CLIs instalados) e só o Postgres sobe no Docker:
+The app runs **on your machine** (uses installed CLIs) and only Postgres runs in Docker:
 
 ```bash
-cp .env.example .env        # opcional: ferramentas e fallback de API keys
+cp .env.example .env        # optional: tools and API key fallback
 npm run dev
 ```
 
-Acesse **http://localhost:8000** (ou **8002** se a 8000 estiver ocupada — o script avisa no terminal). Configure e teste os CLIs em **/settings**.
+Open **http://localhost:8000** (or **8002** if 8000 is busy — the script warns in the terminal). Configure and test CLIs at **/settings**.
 
-O `npm run dev` sobe o Postgres automaticamente (`localhost:5433`) e define `DATABASE_URL` — não precisa editar o `.env` para o banco.
+`npm run dev` starts Postgres automatically (`localhost:5433`) and sets `DATABASE_URL` — you do not need to edit `.env` for the database.
 
-> Sem autenticação por design — **não exponha na internet**. Rode em localhost
-> ou atrás de uma VPN/proxy com autenticação.
+> No authentication by design — **do not expose on the internet**. Run on localhost
+> or behind a VPN/proxy with authentication.
 
-### Outros comandos
+### Other commands
 
-| Comando | O que faz |
-|---------|-----------|
-| `npm run dev` | App local + Postgres no Docker (padrão) |
-| `npm run docker:db` | Só Postgres (foreground) |
-| `npm run docker:up` | Stack completa no Docker (API keys; CLIs do host **não** funcionam) |
+| Command | What it does |
+|---------|--------------|
+| `npm run dev` | Local app + Postgres in Docker (default) |
+| `npm run docker:db` | Postgres only (foreground) |
+| `npm run docker:up` | Full stack in Docker (API keys; host CLIs **do not** work) |
 
-## Configurar CLIs
+## Configure CLIs
 
-1. Instale os CLIs no seu terminal (`claude`, `codex`, `gemini`, `deepseek-tui`).
-2. Autentique cada um (`claude auth login`, `codex login`, etc.).
-3. Abra **/settings**, clique **Testar OI** e confirme a resposta.
+1. Install CLIs in your terminal (`claude`, `codex`, `gemini`, `deepseek-tui`).
+2. Authenticate each one (`claude auth login`, `codex login`, etc.).
+3. Open **/settings**, click **Test** and confirm the response.
 
-Ou use chaves de API no `.env` como fallback (desmarque "Preferir CLIs locais" em /settings).
+Or use API keys in `.env` as fallback (uncheck "Prefer local CLIs" in /settings).
 
-## Como funciona
+## How it works
 
-1. **+ Nova conversa**: defina objetivo, nº de rodadas, orçamento de tokens,
-   modo (sequencial ou paralelo), ferramentas e quais IAs participam (com modelo
-   e persona de cada uma).
-2. **Iniciar**: as IAs falam em rodadas. No fim, uma faz a **síntese**.
-3. Você pode **Pausar/Retomar/Parar** e **entrar no chat como humano** a qualquer
-   momento — sua mensagem entra na conversa na próxima vez que uma IA for falar.
+1. **+ New conversation**: set goal, number of rounds, token budget,
+   mode (sequential or parallel), tools, and which AIs participate (with model
+   and persona for each).
+2. **Start**: AIs speak in rounds. At the end, one produces a **synthesis**.
+3. You can **Pause/Resume/Stop** and **join the chat as a human** at any
+   time — your message enters the conversation the next time an AI speaks.
 
-### Modos
-- **Sequencial** (checkbox "Aguardar uns aos outros" marcado): cada IA vê o que a
-  anterior disse na mesma rodada.
-- **Paralelo** (desmarcado): todas falam ao mesmo tempo, cada uma vendo o estado
-  no início da rodada. Mais rápido, menos "conversa".
+### Modes
+- **Sequential** ("Wait for each other" checked): each AI sees what the
+  previous one said in the same round.
+- **Parallel** (unchecked): all speak at once, each seeing the state
+  at the start of the round. Faster, less of a "conversation".
 
-### Por IA, você controla
-- Modelo (lista editável + opção customizada).
-- Se está **ativa** na conversa.
-- Se **pode perguntar / trocar ideias** (muda o comportamento no prompt).
-- Persona opcional.
+### Per AI, you control
+- Model (editable list + custom option).
+- Whether it is **active** in the conversation.
+- Whether it **can ask / exchange ideas** (changes prompt behavior).
+- Optional persona.
 
-### Ferramentas
-- **Web**: `web_search` (usa Tavily se houver `TAVILY_API_KEY`, senão DuckDuckGo)
-  e `web_fetch` (lê o texto de uma URL).
-- **Apify**: `apify_run` roda um Actor e devolve itens do dataset (precisa
+### Tools
+- **Web**: `web_search` (uses Tavily if `TAVILY_API_KEY` is set, otherwise DuckDuckGo)
+  and `web_fetch` (reads text from a URL).
+- **Apify**: `apify_run` runs an Actor and returns dataset items (requires
   `APIFY_TOKEN`).
-- **MCP**: servidores configurados em `mcp_servers.json` viram ferramentas
-  disponíveis para as IAs.
+- **MCP**: servers configured in `mcp_servers.json` become tools
+  available to the AIs.
 
-### Placar (por IA, em tempo real)
-Tokens de entrada/saída, **gasto estimado** (USD), **prontos** (turnos
-concluídos) e **ferramentas** (chamadas). Mais um card de total.
+### Scoreboard (per AI, real time)
+Input/output tokens, **estimated cost** (USD), **turns**
+completed, and **tools** (calls). Plus a total card.
 
-## Arquitetura
+## Architecture
 
 ```
 app/
-  main.py          FastAPI: REST + WebSocket + serve o frontend
-  db.py            engine async (SQLAlchemy 2.0 + asyncpg)
+  main.py          FastAPI: REST + WebSocket + serve frontend
+  db.py            async engine (SQLAlchemy 2.0 + asyncpg)
   models.py        Conversation, Participant, Message, UsageEvent
-  store.py         acesso ao banco + agregação do placar
-  catalog.py       modelos por provedor + tabela de preços (EDITE)
-  providers.py     adaptadores com loop de ferramentas (OpenAI-compat + Anthropic)
-  orchestrator.py  motor: rodadas, sequencial/paralelo, humano, orçamento, síntese
+  store.py         database access + scoreboard aggregation
+  catalog.py       models per provider + price table (EDIT)
+  providers.py     adapters with tool loop (OpenAI-compat + Anthropic)
+  orchestrator.py  engine: rounds, sequential/parallel, human, budget, synthesis
   tools/           web, apify, mcp_bridge
-web/               index.html, styles.css, app.js (control room em tempo real)
+web/               index.html, styles.css, app.js (real-time control room)
 ```
 
-A comunicação em tempo real é por WebSocket (`/ws/{id}`). Eventos do servidor:
+Real-time communication uses WebSocket (`/ws/{id}`). Server events:
 `snapshot`, `status`, `round`, `turn_start`, `message`, `agent_step`,
 `scoreboard`, `log`, `error`.
 
-## Configurar MCP
+## Configure MCP
 
-Edite `mcp_servers.json`:
+Edit `mcp_servers.json`:
 
 ```json
 {
@@ -106,24 +105,24 @@ Edite `mcp_servers.json`:
 }
 ```
 
-Na criação da conversa, marque **MCP** nas ferramentas. (Node/npx necessário no PATH.)
+When creating a conversation, check **MCP** under tools. (Node/npx required in PATH.)
 
-## Rodar manualmente (sem npm run dev)
+## Run manually (without npm run dev)
 
-Precisa de um Postgres acessível. Com o banco Docker já rodando (`npm run docker:db`):
+Requires an accessible Postgres. With Docker DB already running (`npm run docker:db`):
 
 ```bash
 pip install -r requirements.txt
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/aicouncil uvicorn app.main:app --reload
 ```
 
-## Avisos honestos
+## Honest notes
 
-- **Preços e nomes de modelo** em `catalog.py` são pontos de partida e mudam com
-  frequência — confirme e edite. O "gasto" é **estimativa**.
-- **MCP** é a parte mais dependente do seu ambiente. Vem implementada e isolada
-  (falhas não derrubam o app), mas valide com os servidores que você usar.
-- **Parar** interrompe na fronteira entre turnos; um turno já em andamento
-  termina antes (há timeout nas ferramentas).
-- **Modo CLI** (via `npm run dev`) não usa ferramentas web/Apify/MCP nas IAs —
-  apenas texto. Para ferramentas, use API keys ou `npm run docker:up`.
+- **Prices and model names** in `catalog.py` are starting points and change often —
+  confirm and edit. "Cost" is an **estimate**.
+- **MCP** is the most environment-dependent part. It is implemented and isolated
+  (failures do not crash the app), but validate with the servers you use.
+- **Stop** interrupts at turn boundaries; a turn already in progress
+  finishes first (tools have timeouts).
+- **CLI mode** (via `npm run dev`) does not use web/Apify/MCP tools for AIs —
+  text only. For tools, use API keys or `npm run docker:up`.

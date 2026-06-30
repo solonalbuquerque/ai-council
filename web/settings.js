@@ -3,8 +3,8 @@ const COLORS = {
   claude: "#d98a63", gpt: "#19c39c", gemini: "#5b8def", antigravity: "#f2c94c", deepseek: "#9d7bf0",
 };
 const STATUS_LABEL = {
-  ok: "OK", auth: "Precisa autenticar", missing: "Não instalado",
-  installed: "Instalado", error: "Erro",
+  ok: "OK", auth: "Needs auth", missing: "Not installed",
+  installed: "Installed", error: "Error",
 };
 const STATUS_CLS = {
   ok: "ok", auth: "warn", missing: "bad", installed: "idle", error: "bad",
@@ -25,12 +25,12 @@ let state = { providers: [], config: {}, runtime_mode: "local", lastTests: {} };
 
 function testResultHtml(r) {
   if (r.ok) {
-    return `<span class="k">Resposta</span><div class="txt">${esc(r.response)}</div>` +
-      (r.at ? `<div class="ts">Testado ${new Date(r.at).toLocaleTimeString("pt-BR")}</div>` : "");
+    return `<span class="k">Response</span><div class="txt">${esc(r.response)}</div>` +
+      (r.at ? `<div class="ts">Tested ${new Date(r.at).toLocaleTimeString("en-US")}</div>` : "");
   }
-  return `<span class="k">Falha</span><div class="txt">${esc(r.message)}</div>` +
+  return `<span class="k">Failed</span><div class="txt">${esc(r.message)}</div>` +
     (r.raw ? `<pre class="raw">${esc(r.raw)}</pre>` : "") +
-    (r.at ? `<div class="ts">Testado ${new Date(r.at).toLocaleTimeString("pt-BR")}</div>` : "");
+    (r.at ? `<div class="ts">Tested ${new Date(r.at).toLocaleTimeString("en-US")}</div>` : "");
 }
 
 function setLoginBtnVisible(pkey, visible) {
@@ -41,13 +41,13 @@ function setLoginBtnVisible(pkey, visible) {
 }
 
 function tokenRowHtml(p, show) {
-  const placeholder = p.token_hint || "Cole o token aqui e clique em Salvar";
-  const savedNote = p.has_token ? '<span class="token-saved">Token salvo</span>' : "";
+  const placeholder = p.token_hint || "Paste token here and click Save";
+  const savedNote = p.has_token ? '<span class="token-saved">Token saved</span>' : "";
   return `<div class="cli-token" id="token-row-${p.pkey}" style="display:${show || p.has_token ? "block" : "none"}">
-      <label class="k">Token de autenticação ${savedNote}</label>
+      <label class="k">Authentication token ${savedNote}</label>
       <div class="token-input-row">
         <input type="password" class="token-input" id="token-${p.pkey}" placeholder="${esc(placeholder)}" autocomplete="off" />
-        <button class="btn" data-act="save-token" data-key="${p.pkey}">Salvar</button>
+        <button class="btn" data-act="save-token" data-key="${p.pkey}">Save</button>
       </div>
     </div>`;
 }
@@ -86,15 +86,15 @@ async function load() {
     warn.style.display = "block";
     warn.className = "warnbox";
     warn.innerHTML =
-      "Rodando dentro do <b>Docker</b>: o container não enxerga os CLIs instalados no seu computador. " +
-      "Para usar claude, codex, gemini e deepseek da sua máquina, pare o Docker do app e rode " +
-      "<code>npm run dev</code> (app local + Postgres no Docker).";
+      "Running inside <b>Docker</b>: the container cannot see CLIs installed on your computer. " +
+      "To use claude, codex, gemini, and deepseek from your machine, stop the Docker app and run " +
+      "<code>npm run dev</code> (local app + Postgres in Docker).";
   } else {
     warn.style.display = "block";
     warn.className = "warnbox okbox";
     warn.innerHTML =
-      "Modo <b>local</b> — detectando CLIs instalados nesta máquina. " +
-      "Use <b>Testar</b> e, se precisar, <b>Fazer login</b> (abre um terminal no seu Windows).";
+      "<b>Local</b> mode — detecting CLIs installed on this machine. " +
+      "Use <b>Test</b> and, if needed, <b>Log in</b> (opens a terminal on your system).";
   }
   renderCards();
 }
@@ -118,10 +118,10 @@ function makeCard(p) {
   const stCls = STATUS_CLS[st] || "idle";
   const showLogin = st === "auth" || (state.lastTests[p.pkey] && state.lastTests[p.pkey].status === "auth");
 
-  const installLabel = inDocker ? "Instalar (no container)" : "Instalar";
+  const installLabel = inDocker ? "Install (in container)" : "Install";
   const installTitle = inDocker
-    ? "Instala dentro do container Docker — prefira npm run dev para usar CLIs do host"
-    : "Instala o CLI globalmente via npm nesta máquina";
+    ? "Installs inside the Docker container — prefer npm run dev to use host CLIs"
+    : "Installs the CLI globally via npm on this machine";
 
   card.innerHTML =
     `<div class="cli-head">
@@ -130,18 +130,18 @@ function makeCard(p) {
       <span class="pill ${stCls}">${esc(stLabel)}</span>
     </div>
     <div class="cli-meta">
-      <div><span class="k">Comando</span> <code>${esc(p.path || p.command || "—")}</code></div>
-      <div><span class="k">Versão</span> ${esc(p.version || "—")}</div>
+      <div><span class="k">Command</span> <code>${esc(p.path || p.command || "—")}</code></div>
+      <div><span class="k">Version</span> ${esc(p.version || "—")}</div>
     </div>
     <div class="cli-msg ${stCls}">${esc(p.message || "")}</div>
     <div class="cli-auth note">${esc(p.auth_help || "")}</div>
-    <div class="cli-install note">Instalar: <code>${esc(p.install || "")}</code></div>
+    <div class="cli-install note">Install: <code>${esc(p.install || "")}</code></div>
     <div class="cli-response" id="resp-${p.pkey}" style="display:${state.lastTests[p.pkey] ? "block" : "none"}"></div>
     ${p.supports_token ? tokenRowHtml(p, true) : ""}
     <div class="cli-actions">
       <button class="btn" data-act="install" data-key="${p.pkey}" title="${esc(installTitle)}">${esc(installLabel)}</button>
-      <button class="btn" data-act="login" data-key="${p.pkey}" style="display:${showLogin ? "" : "none"}">Fazer login</button>
-      <button class="btn primary" data-act="test" data-key="${p.pkey}">Testar</button>
+      <button class="btn" data-act="login" data-key="${p.pkey}" style="display:${showLogin ? "" : "none"}">Log in</button>
+      <button class="btn primary" data-act="test" data-key="${p.pkey}">Test</button>
     </div>`;
 
   card.querySelector('[data-act="install"]').onclick = () => installCli(p.pkey);
@@ -158,19 +158,19 @@ async function testCli(pkey) {
   const btn = document.querySelector(`[data-act="test"][data-key="${pkey}"]`);
   const respBox = $(`resp-${pkey}`);
   btn.disabled = true;
-  btn.textContent = "Testando…";
+  btn.textContent = "Testing…";
   respBox.style.display = "block";
   respBox.className = "cli-response loading";
   respBox.innerHTML =
-    `<span class="k">Aguardando</span>` +
-    `<div class="txt">Enviando <strong>OI</strong> ao CLI… pode levar até 1 minuto.</div>` +
+    `<span class="k">Waiting</span>` +
+    `<div class="txt">Sending <strong>HI</strong> to CLI… may take up to 1 minute.</div>` +
     `<div class="spinner"></div>`;
 
   try {
     const r = await api(`/api/cli/test/${pkey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "OI" }),
+      body: JSON.stringify({ prompt: "HI" }),
     });
     const saved = { ...r, at: Date.now() };
     state.lastTests[pkey] = saved;
@@ -181,7 +181,7 @@ async function testCli(pkey) {
     applyTestToCard(pkey, saved);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Testar";
+    btn.textContent = "Test";
   }
 }
 
@@ -189,21 +189,21 @@ async function loginCli(pkey) {
   const btn = document.querySelector(`[data-act="login"][data-key="${pkey}"]`);
   const respBox = $(`resp-${pkey}`);
   btn.disabled = true;
-  btn.textContent = "Abrindo…";
+  btn.textContent = "Opening…";
 
   try {
     const r = await api(`/api/cli/login/${pkey}`, { method: "POST" });
     respBox.style.display = "block";
     respBox.className = "cli-response " + (r.ok ? "ok" : "bad");
-    let html = `<span class="k">${r.ok ? "Terminal" : "Login manual"}</span>`;
+    let html = `<span class="k">${r.ok ? "Terminal" : "Manual login"}</span>`;
     html += `<div class="txt">${esc(r.message)}</div>`;
     if (r.command) {
-      html += `<div class="note" style="margin-top:8px">Comando: <code>${esc(r.command)}</code></div>`;
+      html += `<div class="note" style="margin-top:8px">Command: <code>${esc(r.command)}</code></div>`;
     }
     const prov = state.providers.find((p) => p.pkey === pkey);
     if (r.ok && prov && prov.supports_token) {
-      const what = pkey === "claude" ? "o token <code>sk-ant-oat01-…</code>" : "a key gerada";
-      html += `<div class="note" style="margin-top:8px">Copie ${what} que aparece no terminal, cole no campo abaixo e clique em Salvar.</div>`;
+      const what = pkey === "claude" ? "the token <code>sk-ant-oat01-…</code>" : "the generated key";
+      html += `<div class="note" style="margin-top:8px">Copy ${what} from the terminal, paste below, and click Save.</div>`;
       const row = $(`token-row-${pkey}`);
       if (row) row.style.display = "block";
     }
@@ -211,10 +211,10 @@ async function loginCli(pkey) {
   } catch (e) {
     respBox.style.display = "block";
     respBox.className = "cli-response bad";
-    respBox.innerHTML = `<span class="k">Erro</span><div class="txt">${esc(e.message)}</div>`;
+    respBox.innerHTML = `<span class="k">Error</span><div class="txt">${esc(e.message)}</div>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = "Fazer login";
+    btn.textContent = "Log in";
   }
 }
 
@@ -223,7 +223,7 @@ async function saveToken(pkey) {
   const btn = document.querySelector(`[data-act="save-token"][data-key="${pkey}"]`);
   const token = (input.value || "").trim();
   btn.disabled = true;
-  btn.textContent = "Salvando…";
+  btn.textContent = "Saving…";
   try {
     const r = await api(`/api/cli/token/${pkey}`, {
       method: "POST",
@@ -240,35 +240,35 @@ async function saveToken(pkey) {
     const respBox = $(`resp-${pkey}`);
     respBox.style.display = "block";
     respBox.className = "cli-response bad";
-    respBox.innerHTML = `<span class="k">Erro</span><div class="txt">${esc(e.message)}</div>`;
+    respBox.innerHTML = `<span class="k">Error</span><div class="txt">${esc(e.message)}</div>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = "Salvar";
+    btn.textContent = "Save";
   }
 }
 
 async function installCli(pkey) {
   if (state.runtime_mode === "docker") {
     if (!confirm(
-      "Isso instala o CLI DENTRO do container Docker, não na sua máquina.\n\n" +
-      "Para usar os CLIs do seu computador, pare o app Docker e rode: npm run dev\n\n" +
-      "Continuar mesmo assim?"
+      "This installs the CLI INSIDE the Docker container, not on your machine.\n\n" +
+      "To use CLIs from your computer, stop the Docker app and run: npm run dev\n\n" +
+      "Continue anyway?"
     )) return;
-  } else if (!confirm("Instalar/atualizar o CLI via npm? Pode levar alguns minutos.")) {
+  } else if (!confirm("Install/update the CLI via npm? This may take a few minutes.")) {
     return;
   }
   const btn = document.querySelector(`[data-act="install"][data-key="${pkey}"]`);
   btn.disabled = true;
-  btn.textContent = "Instalando…";
+  btn.textContent = "Installing…";
   try {
     const r = await api(`/api/cli/install/${pkey}`, { method: "POST" });
-    alert(r.ok ? "Instalação concluída." : ("Falha: " + r.message));
+    alert(r.ok ? "Installation complete." : ("Failed: " + r.message));
     await load();
   } catch (e) {
-    alert("Erro: " + e.message);
+    alert("Error: " + e.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = state.runtime_mode === "docker" ? "Instalar (no container)" : "Instalar";
+    btn.textContent = state.runtime_mode === "docker" ? "Install (in container)" : "Install";
   }
 }
 
@@ -284,5 +284,5 @@ $("btn-refresh").onclick = load;
 $("prefer-cli").onchange = savePreferCli;
 
 load().catch((e) => {
-  $("cli-cards").innerHTML = `<div class="warnbox">Erro ao carregar: ${esc(e.message)}</div>`;
+  $("cli-cards").innerHTML = `<div class="warnbox">Error loading: ${esc(e.message)}</div>`;
 });

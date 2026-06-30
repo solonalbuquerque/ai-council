@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Conselho de IAs</title>
+<title>AI Council</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
@@ -12,30 +12,30 @@
 <body>
 <div class="app">
   <header class="appbar">
-    <div class="brand">Conselho<small>v2</small></div>
+    <div class="brand">AI Council<small>v2</small></div>
     <span class="led" id="led"></span>
-    <span class="conn" id="status-txt">ocioso</span>
+    <span class="conn" id="status-txt">idle</span>
     <div class="spacer"></div>
-    <span class="conn" id="conn">●&nbsp; conectando</span>
-    <button class="btn ghost" id="agents-btn">Agentes</button>
+    <span class="conn" id="conn">●&nbsp; connecting</span>
+    <button class="btn ghost" id="agents-btn">Agents</button>
     <a class="btn ghost" href="/settings">⚙ CLIs</a>
   </header>
 
   <div class="body">
     <aside class="sidebar">
       <div class="sidebar-top">
-        <button class="btn primary sidebar-new" id="new-btn">+ Nova conversa</button>
+        <button class="btn primary sidebar-new" id="new-btn">+ New conversation</button>
       </div>
       <div class="sidebar-scroll">
-        <h3>Histórico</h3>
+        <h3>History</h3>
         <div id="conv-list"></div>
       </div>
     </aside>
 
     <main class="main" id="main">
       <div class="placeholder" id="placeholder">
-        <b>Nenhuma conversa aberta</b>
-        Crie uma nova conversa para começar o debate entre as IAs.
+        <b>No conversation open</b>
+        Create a new conversation to start the AI debate.
       </div>
 
       <!-- conversation view (hidden until opened) -->
@@ -46,11 +46,11 @@
           <div class="badges" id="cv-badges"></div>
           <div class="spacer"></div>
           <div class="transport">
-            <button class="tbtn go" id="btn-start">▶ Iniciar</button>
-            <button class="tbtn pause" id="btn-pause" disabled>⏸ Pausar</button>
-            <button class="tbtn stop" id="btn-stop" disabled>⏹ Parar</button>
-            <button class="tbtn org" id="btn-org" title="Organograma de execução">ORG</button>
-            <button class="tbtn" id="btn-export" title="Baixar a conversa completa em JSON">⬇ Exportar JSON</button>
+            <button class="tbtn go" id="btn-start">▶ Start</button>
+            <button class="tbtn pause" id="btn-pause" disabled>⏸ Pause</button>
+            <button class="tbtn stop" id="btn-stop" disabled>⏹ Stop</button>
+            <button class="tbtn org" id="btn-org" title="Execution org chart">ORG</button>
+            <button class="tbtn" id="btn-export" title="Download full conversation as JSON">⬇ Export JSON</button>
           </div>
         </div>
 
@@ -60,19 +60,19 @@
 
         <div class="split">
           <section class="col left">
-            <div class="colhead">Conversa — tempo real</div>
+            <div class="colhead">Conversation — live</div>
             <div class="transcript" id="transcript">
-              <div class="t-empty">A transcrição aparece aqui conforme as IAs falam.</div>
+              <div class="t-empty">The transcript appears here as the AIs speak.</div>
             </div>
             <div class="human-input">
-              <input id="human-text" placeholder="Mensagem, /start ou /stop…" autocomplete="off" />
-              <button id="human-send">Enviar</button>
+              <input id="human-text" placeholder="Message, /start or /stop…" autocomplete="off" />
+              <button id="human-send">Send</button>
             </div>
             <div class="human-status" id="human-status"></div>
           </section>
 
           <section class="col right">
-            <div class="colhead">Terminais — cada IA trabalhando</div>
+            <div class="colhead">Terminals — each AI at work</div>
             <div class="panes" id="panes"></div>
           </section>
         </div>
@@ -81,130 +81,130 @@
   </div>
 </div>
 
-<!-- modal: nova conversa -->
+<!-- modal: new conversation -->
 <div class="modal-bg" id="modal-bg">
   <div class="modal">
-    <h2>Nova conversa</h2>
-    <div class="sub">Defina objetivo, limites, quais IAs participam e como elas interagem.</div>
+    <h2>New conversation</h2>
+    <div class="sub">Set the goal, limits, which AIs participate, and how they interact.</div>
     <div id="no-keys" class="warnbox" style="display:none;">
-      Nenhum provedor disponível. <a href="/settings" style="color:var(--gemini)">Configure os CLIs</a> (claude, codex, gemini, deepseek) ou defina chaves no <code>.env</code>.
+      No providers available. <a href="/settings" style="color:var(--gemini)">Configure CLIs</a> (claude, codex, gemini, deepseek) or set keys in <code>.env</code>.
     </div>
 
-    <div class="row"><label>Objetivo</label><textarea id="f-goal" placeholder="O que essa conversa precisa resolver? Um título será gerado automaticamente por IA."></textarea></div>
+    <div class="row"><label>Goal</label><textarea id="f-goal" placeholder="What should this conversation solve? A title will be generated automatically by AI."></textarea></div>
 
-    <div class="row" style="align-items:start;"><label>Encerrar quando</label>
+    <div class="row" style="align-items:start;"><label>Stop when</label>
       <div>
-        <textarea id="f-stop-when" placeholder="Ex.: quando identificarmos as 3 melhores opções, ou quando houver consenso sobre o risco principal…"></textarea>
-        <div class="note">Critério para considerar o debate concluído (opcional).</div>
+        <textarea id="f-stop-when" placeholder="E.g.: when we identify the top 3 options, or when there is consensus on the main risk…"></textarea>
+        <div class="note">Criteria to consider the debate complete (optional).</div>
       </div>
     </div>
 
-    <div class="row" style="align-items:start;"><label>Produzir ao final</label>
+    <div class="row" style="align-items:start;"><label>Deliver at end</label>
       <div>
-        <textarea id="f-deliverable" placeholder="Ex.: relatório executivo, resumo com prós/contras, lista de ações priorizadas…"></textarea>
-        <div class="note">O que a síntese final deve entregar (opcional).</div>
+        <textarea id="f-deliverable" placeholder="E.g.: executive report, pros/cons summary, prioritized action list…"></textarea>
+        <div class="note">What the final synthesis should deliver (optional).</div>
       </div>
     </div>
 
     <div class="row">
-      <label>Limites</label>
+      <label>Limits</label>
       <div class="limits-row">
         <label class="limit-field">
-          <span class="note">Rodadas</span>
+          <span class="note">Rounds</span>
           <input type="number" id="f-rounds" value="3" min="1" max="12" />
         </label>
         <label class="limit-field">
-          <span class="note">Orçamento</span>
+          <span class="note">Budget</span>
           <input type="number" id="f-budget" value="500000" min="0" step="1000" />
-          <span class="note">0 = ilimitado</span>
+          <span class="note">0 = unlimited</span>
         </label>
         <div class="limit-field limit-check">
-          <span class="note">Modo</span>
+          <span class="note">Mode</span>
           <label class="chk limit-chk">
             <input type="checkbox" id="f-sequential" checked />
-            <span>Aguardar uns aos outros (sequencial)</span>
+            <span>Wait for each other (sequential)</span>
           </label>
         </div>
       </div>
       <div id="budget-warn" class="warnbox" style="display:none;margin-top:8px;">
-        Orçamento ilimitado — o custo pode crescer rapidamente com muitos agentes e rodadas.
+        Unlimited budget — cost can grow quickly with many agents and rounds.
       </div>
     </div>
 
     <div class="row">
-      <label>Contexto</label>
+      <label>Context</label>
       <div class="limits-row">
         <label class="limit-field limit-check">
-          <span class="note">Compressão</span>
+          <span class="note">Compression</span>
           <label class="chk limit-chk">
             <input type="checkbox" id="f-compress" checked />
-            <span>Comprimir contexto entre rodadas</span>
+            <span>Compress context between rounds</span>
           </label>
         </label>
         <label class="limit-field">
-          <span class="note">Limite (chars)</span>
+          <span class="note">Limit (chars)</span>
           <input type="number" id="f-context-max" value="12000" min="2000" step="1000" />
         </label>
       </div>
     </div>
 
     <div class="row">
-      <label>Ferramentas</label>
+      <label>Tools</label>
       <div class="toggles">
-        <label class="chk"><input type="checkbox" id="f-web" checked /> Web (busca + leitura)</label>
+        <label class="chk"><input type="checkbox" id="f-web" checked /> Web (search + fetch)</label>
         <label class="chk"><input type="checkbox" id="f-apify" /> Apify</label>
         <label class="chk"><input type="checkbox" id="f-mcp" /> MCP</label>
-        <label class="chk"><input type="checkbox" id="f-synth" checked /> Síntese final</label>
+        <label class="chk"><input type="checkbox" id="f-synth" checked /> Final synthesis</label>
       </div>
     </div>
 
-    <h4>Agentes</h4>
-    <div class="sub" style="margin-top:-8px;margin-bottom:10px;">Selecione personas da biblioteca e escolha qual CLI/modelo encarna cada uma.</div>
+    <h4>Agents</h4>
+    <div class="sub" style="margin-top:-8px;margin-bottom:10px;">Select personas from the library and choose which CLI/model embodies each one.</div>
     <div id="conv-agents"></div>
     <div id="no-agents" class="warnbox" style="display:none;">
-      Nenhum agente na biblioteca. <button type="button" class="btn ghost" id="open-agents-from-conv" style="margin-left:8px;padding:4px 10px;">Abrir Agentes</button>
+      No agents in the library. <button type="button" class="btn ghost" id="open-agents-from-conv" style="margin-left:8px;padding:4px 10px;">Open Agents</button>
     </div>
 
-    <h4>Participantes ad-hoc</h4>
-    <div class="sub" style="margin-top:-8px;margin-bottom:10px;">Ou ative provedores diretamente, sem persona da biblioteca.</div>
+    <h4>Ad-hoc participants</h4>
+    <div class="sub" style="margin-top:-8px;margin-bottom:10px;">Or enable providers directly, without a library persona.</div>
     <div id="participants"></div>
 
     <div id="conv-estimate" class="note" style="margin:10px 0;padding:8px 10px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line);"></div>
     <div id="conv-warn-dupes" class="warnbox" style="display:none;margin-bottom:10px;"></div>
 
     <div class="actions">
-      <button class="btn ghost" id="modal-cancel">Cancelar</button>
-      <button class="btn primary" id="modal-create">Criar e abrir</button>
+      <button class="btn ghost" id="modal-cancel">Cancel</button>
+      <button class="btn primary" id="modal-create">Create and open</button>
     </div>
   </div>
 </div>
 
-<!-- modal: agentes -->
+<!-- modal: agents -->
 <div class="modal-bg" id="agents-modal-bg">
   <div class="modal modal-lg agents-modal">
     <div class="agents-head">
       <div>
-        <h2>Agentes</h2>
-        <div class="sub">Biblioteca de personas reutilizáveis. Adicione pela lista, URL ou criação manual.</div>
+        <h2>Agents</h2>
+        <div class="sub">Reusable persona library. Add from presets, URL, or manual creation.</div>
       </div>
-      <button class="btn ghost" id="agents-close">Fechar</button>
+      <button class="btn ghost" id="agents-close">Close</button>
     </div>
 
     <div class="agents-layout">
       <section class="agents-saved">
-        <h4>Salvos</h4>
+        <h4>Saved</h4>
         <div id="agents-list" class="agents-list"></div>
       </section>
 
       <section class="agents-add">
         <div class="tabs" id="agents-tabs">
-          <button type="button" class="tab active" data-tab="preset">Pré-carregados</button>
-          <button type="button" class="tab" data-tab="url">Importar URL</button>
-          <button type="button" class="tab" data-tab="manual">Criar manual</button>
+          <button type="button" class="tab active" data-tab="preset">Presets</button>
+          <button type="button" class="tab" data-tab="url">Import URL</button>
+          <button type="button" class="tab" data-tab="manual">Create manually</button>
         </div>
 
         <div class="tab-panel active" id="tab-preset">
-          <div class="sub">Clique para adicionar à biblioteca (presets que ainda não existem).</div>
+          <div class="sub">Click to add to the library (presets not yet saved).</div>
           <div id="agents-presets" class="preset-grid"></div>
         </div>
 
@@ -212,27 +212,27 @@
           <div class="row" style="grid-template-columns:1fr auto;">
             <div>
               <label>URL</label>
-              <input type="text" id="agent-url" placeholder="https://github.com/.../SKILL.md ou outra URL com descrição" />
+              <input type="text" id="agent-url" placeholder="https://github.com/.../SKILL.md or another URL with a description" />
             </div>
             <div style="align-self:end;">
-              <button class="btn" id="agent-url-fetch">Buscar</button>
+              <button class="btn" id="agent-url-fetch">Fetch</button>
             </div>
           </div>
           <div id="agent-url-preview" class="agent-preview" style="display:none;">
-            <div class="row"><label>Nome</label><input type="text" id="agent-url-name" /></div>
-            <div class="row" style="align-items:start;"><label>Descrição</label><textarea id="agent-url-desc"></textarea></div>
+            <div class="row"><label>Name</label><input type="text" id="agent-url-name" /></div>
+            <div class="row" style="align-items:start;"><label>Description</label><textarea id="agent-url-desc"></textarea></div>
             <div class="actions" style="margin-top:12px;">
-              <button class="btn primary" id="agent-url-save">Salvar agente</button>
+              <button class="btn primary" id="agent-url-save">Save agent</button>
             </div>
           </div>
           <div id="agent-url-msg" class="note"></div>
         </div>
 
         <div class="tab-panel" id="tab-manual">
-          <div class="row"><label>Nome</label><input type="text" id="agent-manual-name" placeholder="Ex.: Revisor de código" /></div>
-          <div class="row" style="align-items:start;"><label>Descrição</label><textarea id="agent-manual-desc" placeholder="Persona completa: papel, tom, foco, restrições…"></textarea></div>
+          <div class="row"><label>Name</label><input type="text" id="agent-manual-name" placeholder="E.g.: Code reviewer" /></div>
+          <div class="row" style="align-items:start;"><label>Description</label><textarea id="agent-manual-desc" placeholder="Full persona: role, tone, focus, constraints…"></textarea></div>
           <div class="actions" style="margin-top:12px;">
-            <button class="btn primary" id="agent-manual-save">Salvar agente</button>
+            <button class="btn primary" id="agent-manual-save">Save agent</button>
           </div>
         </div>
       </section>
@@ -240,33 +240,33 @@
   </div>
 </div>
 
-<!-- modal: organograma ORG -->
+<!-- modal: org chart ORG -->
 <div class="modal-bg" id="org-modal-bg">
   <div class="modal modal-lg org-modal">
     <div class="org-head">
       <div>
-        <h2>Organograma de execução</h2>
-        <div class="sub" id="org-sub">Caminho percorrido pelas IAs até o resultado.</div>
+        <h2>Execution org chart</h2>
+        <div class="sub" id="org-sub">Path taken by the AIs to reach the result.</div>
       </div>
       <div class="org-head-actions">
         <select id="org-run-select" class="org-run-select" style="display:none"></select>
-        <button class="btn ghost" id="org-close">Fechar</button>
+        <button class="btn ghost" id="org-close">Close</button>
       </div>
     </div>
     <div id="org-warn" class="warnbox" style="display:none;"></div>
     <div class="org-legend">
-      <span class="org-leg pending"><i></i> pendente</span>
-      <span class="org-leg active"><i></i> em andamento</span>
-      <span class="org-leg done"><i></i> concluído</span>
-      <span class="org-leg error"><i></i> erro</span>
+      <span class="org-leg pending"><i></i> pending</span>
+      <span class="org-leg active"><i></i> in progress</span>
+      <span class="org-leg done"><i></i> done</span>
+      <span class="org-leg error"><i></i> error</span>
     </div>
     <div class="org-body">
       <div class="org-canvas-wrap" id="org-canvas-wrap">
         <canvas id="org-canvas"></canvas>
       </div>
       <aside class="org-log-panel" id="org-log-panel">
-        <div class="org-log-title">Detalhes</div>
-        <div class="org-log-empty" id="org-log-empty">Clique em um nó para ver os logs.</div>
+        <div class="org-log-title">Details</div>
+        <div class="org-log-empty" id="org-log-empty">Click a node to view logs.</div>
         <div class="org-log-content" id="org-log-content" style="display:none"></div>
       </aside>
     </div>

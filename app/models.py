@@ -28,7 +28,7 @@ def _now() -> datetime.datetime:
 class Conversation(Base):
     __tablename__ = "conversations"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    title: Mapped[str] = mapped_column(String(200), default="Nova conversa")
+    title: Mapped[str] = mapped_column(String(200), default="New conversation")
     goal: Mapped[str] = mapped_column(Text, default="")
     mode: Mapped[str] = mapped_column(String(20), default="sequential")  # sequential | parallel
     max_rounds: Mapped[int] = mapped_column(Integer, default=3)

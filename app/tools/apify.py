@@ -1,4 +1,4 @@
-"""Ferramenta para rodar Actors da Apify."""
+"""Tool to run Apify Actors."""
 import json
 import os
 
@@ -10,8 +10,8 @@ from app.tools.base import Tool
 async def _apify_run(actor_id: str, input: dict | None = None, max_items: int = 20) -> str:
     token = os.getenv("APIFY_TOKEN")
     if not token:
-        return "APIFY_TOKEN não configurado no ambiente."
-    # Apify aceita 'user/actor' como 'user~actor' na URL.
+        return "APIFY_TOKEN not set in environment."
+    # Apify accepts 'user/actor' as 'user~actor' in the URL.
     actor = actor_id.replace("/", "~")
     url = f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items"
     async with httpx.AsyncClient(timeout=180) as c:
@@ -25,12 +25,12 @@ async def _apify_run(actor_id: str, input: dict | None = None, max_items: int = 
 
 apify_tool = Tool(
     "apify_run",
-    "Executa um Actor da Apify (ex.: 'apify/web-scraper') e retorna itens do dataset.",
+    "Runs an Apify Actor (e.g. 'apify/web-scraper') and returns dataset items.",
     {
         "type": "object",
         "properties": {
-            "actor_id": {"type": "string", "description": "ex.: apify/website-content-crawler"},
-            "input": {"type": "object", "description": "input do Actor"},
+            "actor_id": {"type": "string", "description": "e.g. apify/website-content-crawler"},
+            "input": {"type": "object", "description": "Actor input"},
             "max_items": {"type": "integer"},
         },
         "required": ["actor_id"],

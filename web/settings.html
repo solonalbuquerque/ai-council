@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Configuração de CLIs — Conselho de IAs</title>
+<title>CLI configuration — AI Council</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
@@ -12,21 +12,21 @@
 <body>
 <div class="app settings-app">
   <header class="appbar">
-    <div class="brand">Conselho<small>CLIs</small></div>
+    <div class="brand">AI Council<small>CLIs</small></div>
     <div class="spacer"></div>
-    <a class="btn ghost" href="/">← Voltar ao app</a>
-    <button class="btn" id="btn-refresh">Atualizar</button>
+    <a class="btn ghost" href="/">← Back to app</a>
+    <button class="btn" id="btn-refresh">Refresh</button>
   </header>
 
   <main class="settings-main">
     <section class="settings-hero">
-      <h1>Configuração dos CLIs</h1>
-      <p>Use os CLIs instalados na sua máquina (Claude, Codex, Gemini, DeepSeek) em vez de chaves de API no <code>.env</code>. Instale, faça login no terminal do Windows se necessário, e teste com um <strong>OI</strong>.</p>
+      <h1>CLI configuration</h1>
+      <p>Use CLIs installed on your machine (Claude, Codex, Gemini, DeepSeek) instead of API keys in <code>.env</code>. Install them, log in from the terminal if needed, and test with a <strong>HI</strong>.</p>
       <div id="docker-warn" class="warnbox" style="display:none;"></div>
     </section>
 
     <section class="settings-global">
-      <label class="chk"><input type="checkbox" id="prefer-cli" checked /> Preferir CLIs locais (em vez de API keys do .env)</label>
+      <label class="chk"><input type="checkbox" id="prefer-cli" checked /> Prefer local CLIs (instead of .env API keys)</label>
     </section>
 
     <div id="cli-cards" class="cli-grid"></div>

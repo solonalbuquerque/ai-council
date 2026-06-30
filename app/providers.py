@@ -1,7 +1,7 @@
-"""Provedores (API ou CLI local) com loop de uso de ferramentas.
+"""Providers (API or local CLI) with tool-use loop.
 
-Modo API: chama o modelo via SDK. Modo CLI: delega ao binário instalado na
-máquina (claude, codex, gemini, deepseek) — autenticação fica no CLI.
+API mode: calls the model via SDK. CLI mode: delegates to the installed binary
+(claude, codex, gemini, deepseek) — authentication stays in the CLI.
 """
 import json
 import os
@@ -51,7 +51,7 @@ async def _step(emit, kind, payload):
 
 
 class OpenAICompatProvider(Provider):
-    """OpenAI, DeepSeek e Gemini (endpoint compatível)."""
+    """OpenAI, DeepSeek, and Gemini (compatible endpoint)."""
 
     def __init__(self, pkey, label, model, api_key, base_url):
         super().__init__(pkey, label, model)
@@ -113,9 +113,9 @@ class OpenAICompatProvider(Provider):
                     await _step(emit, "tool_call", {"tool": name, "args": args})
                     tool = by_name.get(name)
                     try:
-                        out = await tool.run(**args) if tool else f"Ferramenta {name} indisponível."
+                        out = await tool.run(**args) if tool else f"Tool {name} unavailable."
                     except Exception as e:
-                        out = f"Erro na ferramenta {name}: {e}"
+                        out = f"Tool error {name}: {e}"
                     await _step(emit, "tool_result", {"tool": name, "preview": out[:400]})
                     messages.append({
                         "role": "tool", "tool_call_id": tc.id, "content": out[:tool_max]})
@@ -177,9 +177,9 @@ class AnthropicProvider(Provider):
                         await _step(emit, "tool_call", {"tool": b.name, "args": b.input})
                         tool = by_name.get(b.name)
                         try:
-                            out = await tool.run(**(b.input or {})) if tool else f"Ferramenta {b.name} indisponível."
+                            out = await tool.run(**(b.input or {})) if tool else f"Tool {b.name} unavailable."
                         except Exception as e:
-                            out = f"Erro na ferramenta {b.name}: {e}"
+                            out = f"Tool error {b.name}: {e}"
                         await _step(emit, "tool_result", {"tool": b.name, "preview": out[:400]})
                         results.append({
                             "type": "tool_result", "tool_use_id": b.id, "content": out[:tool_max]})
@@ -194,7 +194,7 @@ class AnthropicProvider(Provider):
 
 
 class CLIProvider(Provider):
-    """Executa via CLI local (sem loop de ferramentas)."""
+    """Runs via local CLI (no tool loop)."""
 
     async def run(
         self,
@@ -206,23 +206,23 @@ class CLIProvider(Provider):
         tool_result_max_chars: int | None = None,
     ) -> RunResult:
         if tools and emit:
-            await _step(emit, "tool_call", {"tool": "_info", "args": {"msg": "Modo CLI: ferramentas desativadas"}})
+            await _step(emit, "tool_call", {"tool": "_info", "args": {"msg": "CLI mode: tools disabled"}})
         text, err = await run_cli(self.pkey, system, user_prompt, self.model)
         res = RunResult()
         if err:
-            res.text = f"[Erro CLI] {err}"
+            res.text = f"[CLI error] {err}"
             if emit:
                 await _step(emit, "tool_result", {"tool": "_cli", "preview": err[:400]})
             return res
         res.text = text
-        # estimativa grosseira — CLIs não expõem contagem de tokens
+        # rough estimate — CLIs do not expose token counts
         res.input_tokens = len(system + user_prompt) // 4
         res.output_tokens = len(text) // 4
         res.cost_usd = estimate(self.model, res.input_tokens, res.output_tokens)
         return res
 
 
-# ---- fábrica ----
+# ---- factory ----
 def _provider_key(pkey: str) -> str:
     """Extrai o provedor base de pkeys compostos (ex.: claude:abc123)."""
     return pkey.split(":", 1)[0] if ":" in pkey else pkey

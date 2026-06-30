@@ -1,4 +1,4 @@
-"""Abstração de ferramenta usada por todos os provedores."""
+"""Tool abstraction used by all providers."""
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 

@@ -1,4 +1,4 @@
-"""Servidor: REST + WebSocket + frontend estático."""
+"""Server: REST + WebSocket + static frontend."""
 import json
 import os
 from contextlib import asynccontextmanager
@@ -42,13 +42,13 @@ async def lifespan(app: FastAPI):
             await mgr.start(servers)
             app.state.mcp = mgr
     except Exception as e:
-        print("Init MCP falhou (seguindo sem MCP):", e)
+        print("MCP init failed (continuing without MCP):", e)
     yield
     if app.state.mcp:
         await app.state.mcp.stop()
 
 
-app = FastAPI(title="Conselho de IAs", lifespan=lifespan)
+app = FastAPI(title="AI Council", lifespan=lifespan)
 
 
 # ------------------------------- hub WS -------------------------------
@@ -189,7 +189,7 @@ async def import_agent_url(payload: dict | None = None):
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     except Exception as e:
-        return JSONResponse({"error": f"Falha ao importar: {e}"}, status_code=502)
+        return JSONResponse({"error": f"Import failed: {e}"}, status_code=502)
 
 
 @app.post("/api/conversations")
@@ -220,7 +220,7 @@ async def generate_conversation_title(cid: str, payload: dict | None = None):
     goal = body.get("goal") or full.get("goal") or ""
     participants = body.get("participants")
     title = await generate_title(goal, participants)
-    if title and title != "Uma nova conversa":
+    if title and title != "A new conversation":
         await store.update_title(cid, title)
     return {"title": title}
 
@@ -238,7 +238,7 @@ async def export_conversation(cid: str):
     full = await store.get_conversation_full(cid)
     if not full:
         return JSONResponse({"error": "not found"}, status_code=404)
-    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in (full.get("title") or "conversa"))[:60]
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in (full.get("title") or "conversation"))[:60]
     body = json.dumps(full, ensure_ascii=False, indent=2)
     return Response(
         content=body,
@@ -284,17 +284,17 @@ async def ws_endpoint(websocket: WebSocket, cid: str):
             elif action == "human":
                 text = (data.get("text") or "").strip()
                 if text:
-                    m = await store.save_message(cid, 0, "human", "Humano", "human", text)
+                    m = await store.save_message(cid, 0, "human", "Human", "human", text)
                     await hub.broadcast(cid, {"type": "message", "payload": m})
                     r = RUNNERS.get(cid)
                     if r:
                         r.add_human(m["id"], text)
                         if not r._gate.is_set():
-                            detail = "Execução pausada — mensagem na fila até retomar."
+                            detail = "Run paused — message queued until you resume."
                         elif r.followup:
-                            detail = "Na fila — será respondida após a resposta atual."
+                            detail = "Queued — will be answered after the current reply."
                         else:
-                            detail = "Na fila — as IAs lerão no próximo turno da rodada em andamento."
+                            detail = "Queued — AIs will read it on the next turn of the current round."
                         await emit("human_ack", {
                             "message_id": m["id"],
                             "status": "queued",
@@ -308,7 +308,7 @@ async def ws_endpoint(websocket: WebSocket, cid: str):
                         await emit("human_ack", {
                             "message_id": m["id"],
                             "status": "pending_start",
-                            "detail": "Mensagem salva — será lida quando você clicar Iniciar.",
+                            "detail": "Message saved — will be read when you click Start.",
                             "responder": None,
                         })
     except WebSocketDisconnect:
@@ -325,7 +325,7 @@ async def index():
 
 @app.get("/c/{cid}")
 async def conversation_page(cid: str):
-    """Deep link para abrir uma conversa diretamente."""
+    """Deep link to open a conversation directly."""
     return FileResponse(os.path.join(WEB, "index.html"))
 
 

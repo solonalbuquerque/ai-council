@@ -1,4 +1,4 @@
-"""Conexão com o PostgreSQL (SQLAlchemy 2.0 async + asyncpg)."""
+"""PostgreSQL connection (SQLAlchemy 2.0 async + asyncpg)."""
 import asyncio
 import os
 
@@ -20,9 +20,8 @@ Session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession
 
 
 async def init_db(retries: int = 30, delay: float = 2.0):
-    """Cria as tabelas. Tenta várias vezes porque o Postgres do Docker pode
-    demorar a aceitar conexões na primeira subida."""
-    import app.models  # noqa: F401  (registra os modelos no metadata)
+    """Create tables. Retries because Docker Postgres may take a moment to accept connections on first boot."""
+    import app.models  # noqa: F401  (register models on metadata)
 
     last = None
     for _ in range(retries):
@@ -30,7 +29,7 @@ async def init_db(retries: int = 30, delay: float = 2.0):
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             return
-        except Exception as e:  # ainda subindo
+        except Exception as e:  # still starting up
             last = e
             await asyncio.sleep(delay)
-    raise RuntimeError(f"Não consegui conectar ao banco: {last}")
+    raise RuntimeError(f"Could not connect to database: {last}")

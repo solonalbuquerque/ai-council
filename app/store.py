@@ -1,8 +1,8 @@
-"""Camada de acesso ao banco."""
+"""Database access layer."""
 from sqlalchemy import func, select
 
 from app import models
-from app.agent_presets import AGENT_PRESETS
+from app.agent_presets import AGENT_PRESETS, PRESET_NAME_MIGRATIONS
 from app.db import Session
 
 
@@ -18,8 +18,25 @@ def _agent(a: models.Agent) -> dict:
 
 
 async def seed_agents():
-    """Insere presets ausentes (idempotente por nome)."""
+    """Insert missing presets (idempotent by name). Migrates legacy PT preset names."""
     async with Session() as s:
+        preset_by_name = {p["name"]: p for p in AGENT_PRESETS}
+        for old_name, new_name in PRESET_NAME_MIGRATIONS.items():
+            old = (await s.execute(
+                select(models.Agent).where(models.Agent.name == old_name)
+            )).scalars().first()
+            if not old:
+                continue
+            new_exists = (await s.execute(
+                select(models.Agent).where(models.Agent.name == new_name)
+            )).scalars().first()
+            if new_exists:
+                await s.delete(old)
+            else:
+                old.name = new_name
+                if old.source == "preset" and new_name in preset_by_name:
+                    old.description = preset_by_name[new_name]["description"]
+
         existing = {
             row[0]
             for row in (await s.execute(select(models.Agent.name))).all()
@@ -34,8 +51,7 @@ async def seed_agents():
                 source="preset",
             ))
             added = True
-        if added:
-            await s.commit()
+        await s.commit()
 
 
 async def list_agents() -> list[dict]:
@@ -56,9 +72,9 @@ async def create_agent(payload: dict) -> dict:
     name = (payload.get("name") or "").strip()
     description = (payload.get("description") or "").strip()
     if not name:
-        raise ValueError("Nome do agente é obrigatório.")
+        raise ValueError("Agent name is required.")
     if not description:
-        raise ValueError("Descrição do agente é obrigatória.")
+        raise ValueError("Agent description is required.")
     source = (payload.get("source") or "manual").strip() or "manual"
     source_url = (payload.get("source_url") or "").strip() or None
 
@@ -89,7 +105,7 @@ async def create_conversation(payload: dict) -> str:
     goal = payload.get("goal") or ""
     async with Session() as s:
         conv = models.Conversation(
-            title=payload.get("title") or "Uma nova conversa",
+            title=payload.get("title") or "A new conversation",
             goal=goal,
             mode=payload.get("mode") or "sequential",
             max_rounds=int(payload.get("max_rounds") or 3),
@@ -310,6 +326,6 @@ async def update_title(cid: str, title: str) -> bool:
         c = await s.get(models.Conversation, cid)
         if not c:
             return False
-        c.title = (title or "Uma nova conversa")[:200]
+        c.title = (title or "A new conversation")[:200]
         await s.commit()
         return True

@@ -1,12 +1,12 @@
-"""Ponte com servidores MCP (EXPERIMENTAL).
+"""Bridge to MCP servers (EXPERIMENTAL).
 
-Lê uma lista de servidores (mcp_servers.json), conecta via stdio usando o SDK
-oficial `mcp`, lista as ferramentas de cada um e as expõe como Tool. Servidores
-podem ser instalados sob demanda usando `npx -y <pacote>` como comando.
+Reads a server list (mcp_servers.json), connects via stdio using the official `mcp`
+SDK, lists each server's tools, and exposes them as Tool instances. Servers can be
+installed on demand using `npx -y <package>` as the command.
 
-É o ponto mais dependente do seu ambiente: precisa de Node/npx na imagem (já
-incluso no Dockerfile) e que cada servidor inicialize corretamente. Tudo aqui é
-defensivo — se algo falhar, o app continua sem as ferramentas MCP.
+This is the most environment-dependent piece: requires Node/npx in the image (already
+included in the Dockerfile) and each server must start correctly. Everything here is
+defensive — if something fails, the app continues without MCP tools.
 """
 from contextlib import AsyncExitStack
 
@@ -25,8 +25,8 @@ class MCPManager:
         try:
             from mcp import ClientSession, StdioServerParameters
             from mcp.client.stdio import stdio_client
-        except Exception as e:  # SDK ausente
-            print("MCP SDK indisponível:", e)
+        except Exception as e:  # SDK missing
+            print("MCP SDK unavailable:", e)
             return
 
         self.stack = AsyncExitStack()
@@ -42,9 +42,9 @@ class MCPManager:
                 listed = await session.list_tools()
                 for t in listed.tools:
                     self.tools.append(self._wrap(session, name, t))
-                print(f"MCP '{name}': {len(listed.tools)} ferramenta(s).")
+                print(f"MCP '{name}': {len(listed.tools)} tool(s).")
             except Exception as e:
-                print(f"Falha ao iniciar MCP '{name}': {e}")
+                print(f"Failed to start MCP '{name}': {e}")
 
     def _wrap(self, session, server_name: str, t) -> Tool:
         async def fn(**kwargs):
@@ -57,7 +57,7 @@ class MCPManager:
         schema = getattr(t, "inputSchema", None) or {"type": "object", "properties": {}}
         return Tool(
             f"mcp__{server_name}__{t.name}",
-            (getattr(t, "description", None) or "Ferramenta MCP")[:300],
+            (getattr(t, "description", None) or "MCP tool")[:300],
             schema,
             fn,
         )

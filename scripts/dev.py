@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sobe Postgres no Docker e roda o app localmente (acessa CLIs do host)."""
+"""Start Postgres in Docker and run the app locally (uses host CLIs)."""
 from __future__ import annotations
 
 import os
@@ -43,21 +43,21 @@ def port_open(host: str, port: int) -> bool:
 
 
 def wait_for_db() -> bool:
-    log(f"Aguardando Postgres em {DB_HOST}:{DB_PORT}…")
+    log(f"Waiting for Postgres at {DB_HOST}:{DB_PORT}…")
     deadline = time.time() + WAIT_TIMEOUT
     while time.time() < deadline:
         if port_open(DB_HOST, DB_PORT):
-            log("Postgres pronto.")
+            log("Postgres ready.")
             return True
         time.sleep(1)
     return False
 
 
 def start_db() -> None:
-    log("Subindo Postgres (docker compose up db -d)…")
+    log("Starting Postgres (docker compose up db -d)…")
     r = run(["docker", "compose", "up", "db", "-d"], text=True)
     if r.returncode != 0:
-        log("Erro ao subir o banco. Verifique se o Docker está rodando.")
+        log("Error starting database. Check that Docker is running.")
         sys.exit(1)
 
 
@@ -65,10 +65,10 @@ def ensure_python_deps() -> None:
     try:
         import uvicorn  # noqa: F401
     except ImportError:
-        log("Instalando dependências Python…")
+        log("Installing Python dependencies…")
         r = run([sys.executable, "-m", "pip", "install", "-q", "-r", "requirements.txt"])
         if r.returncode != 0:
-            log("Falha ao instalar requirements.txt. Rode: pip install -r requirements.txt")
+            log("Failed to install requirements.txt. Run: pip install -r requirements.txt")
             sys.exit(1)
 
 
@@ -83,21 +83,20 @@ def main() -> None:
     os.chdir(ROOT)
 
     if not docker_ok():
-        log("Docker não encontrado. Instale Docker Desktop e tente novamente.")
+        log("Docker not found. Install Docker Desktop and try again.")
         sys.exit(1)
 
     ensure_python_deps()
     start_db()
 
     if not wait_for_db():
-        log(f"Timeout: Postgres não respondeu em {DB_HOST}:{DB_PORT} após {WAIT_TIMEOUT}s.")
-        log("Verifique: docker compose logs db")
+        log(f"Timeout: Postgres did not respond at {DB_HOST}:{DB_PORT} after {WAIT_TIMEOUT}s.")
+        log("Check: docker compose logs db")
         sys.exit(1)
 
     env = os.environ.copy()
     env["DATABASE_URL"] = DATABASE_URL
 
-    # dotenv para o restante (.env) sem sobrescrever DATABASE_URL
     try:
         from dotenv import load_dotenv
         load_dotenv(ROOT / ".env", override=False)
@@ -107,7 +106,7 @@ def main() -> None:
 
     app_port = pick_app_port()
     if app_port != APP_PORTS[0]:
-        log(f"Aviso: porta {APP_PORTS[0]} ocupada — usando {app_port}.")
+        log(f"Warning: port {APP_PORTS[0]} is busy — using {app_port}.")
 
     log("")
     log("=" * 50)
@@ -127,7 +126,7 @@ def main() -> None:
     try:
         subprocess.run(cmd, cwd=ROOT, env=env)
     except KeyboardInterrupt:
-        log("\nEncerrado.")
+        log("\nStopped.")
 
 
 if __name__ == "__main__":

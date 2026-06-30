@@ -1,36 +1,36 @@
-"""Motor da conversa entre as IAs."""
+"""Conversation engine between AIs."""
 import asyncio
 
 from app import store
 from app.providers import make_provider
 from app.tools import build_tools, filter_tools_for_participant
 
-# conversa_id -> Runner ativo
+# conv_id -> active Runner
 RUNNERS: dict[str, "Runner"] = {}
 
 FOLLOWUP_SYSTEM = (
-    "Você continua a conversa com o humano após o debate do conselho. "
-    "Responda diretamente ao que o humano disse, com base no contexto. "
-    "Seja claro e conversacional. Responda no idioma do objetivo."
+    "You continue the conversation with the human after the council debate. "
+    "Respond directly to what the human said, based on the context. "
+    "Be clear and conversational. Respond in the same language as the goal."
 )
 
 COMPRESS_SYSTEM = (
-    "Você resume debates entre várias IAs. Produza uma síntese densa e estruturada "
-    "com: consensos, divergências, fatos verificados, hipóteses em aberto e "
-    "decisões pendentes. Preserve números e nomes importantes. "
-    "Responda no idioma do objetivo."
+    "You summarize debates between multiple AIs. Produce a dense, structured summary "
+    "with: consensus, disagreements, verified facts, open hypotheses, and "
+    "pending decisions. Preserve important numbers and names. "
+    "Respond in the same language as the goal."
 )
 
 
 def build_goal_context(conv: dict) -> str:
     cfg = conv.get("config") or {}
-    parts = [f"OBJETIVO:\n{conv.get('goal') or ''}"]
+    parts = [f"GOAL:\n{conv.get('goal') or ''}"]
     stop = (cfg.get("stop_when") or "").strip()
     deliver = (cfg.get("deliverable") or "").strip()
     if stop:
-        parts.append(f"ENCERRAR QUANDO:\n{stop}")
+        parts.append(f"STOP WHEN:\n{stop}")
     if deliver:
-        parts.append(f"PRODUZIR AO FINAL:\n{deliver}")
+        parts.append(f"DELIVER AT END:\n{deliver}")
     return "\n\n".join(parts)
 
 
@@ -69,34 +69,34 @@ def _trim_transcript(
 def build_prompt(conv, transcript, label, others, can_interact, persona):
     cfg = _run_config(conv)
     interact = (
-        "Você PODE fazer perguntas aos outros participantes e ao humano, e responder "
-        "perguntas dirigidas a você."
+        "You MAY ask questions of other participants and the human, and answer "
+        "questions directed at you."
         if can_interact
-        else "Você NÃO deve fazer perguntas; apresente apenas sua análise e contribuição."
+        else "You must NOT ask questions; present only your analysis and contribution."
     )
     persona_line = f"Persona: {persona.strip()}\n" if persona and persona.strip() else ""
     stop_hint = ""
     if (cfg.get("stop_when") or "").strip():
         stop_hint = (
-            " Avalie se os critérios de ENCERRAR QUANDO já foram atingidos; "
-            "se sim, indique explicitamente que o debate pode ser encerrado."
+            " Evaluate whether the STOP WHEN criteria have been met; "
+            "if so, explicitly state that the debate may be concluded."
         )
     max_words = int(cfg.get("max_words_per_turn") or 0)
     concision = (
-        f" Limite sua resposta a no máximo {max_words} palavras."
+        f" Limit your response to at most {max_words} words."
         if max_words > 0
         else ""
     )
     system = (
-        f"Você é {label}, colaborando com {others} para atingir o OBJETIVO abaixo.\n"
+        f"You are {label}, collaborating with {others} to achieve the GOAL below.\n"
         f"{persona_line}{interact}\n"
-        "Seja concreto e conciso; agregue valor, não concorde por concordar. "
-        "Se precisar de dados externos, use as ferramentas disponíveis. "
-        f"Responda no idioma do objetivo.{stop_hint}{concision}"
+        "Be concrete and concise; add value, do not agree for the sake of agreeing. "
+        "If you need external data, use the available tools. "
+        f"Respond in the same language as the goal.{stop_hint}{concision}"
     )
-    convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript) or "(início — ainda sem mensagens)"
+    convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript) or "(start — no messages yet)"
     goal_ctx = build_goal_context(conv)
-    user = f"{goal_ctx}\n\nCONVERSA ATÉ AQUI:\n{convo}\n\nSua vez, {label}."
+    user = f"{goal_ctx}\n\nCONVERSATION SO FAR:\n{convo}\n\nYour turn, {label}."
     return system, user
 
 
@@ -111,14 +111,14 @@ def _build_transcript(messages: list) -> list[tuple[str, str]]:
 def _pick_responder(conv: dict, parts: list) -> tuple[dict, str, str]:
     if conv["config"].get("synthesize", True):
         p = parts[0]
-        return p, "synth", "Síntese"
+        return p, "synth", "Synthesis"
     p = parts[-1]
     return p, p["pkey"], p["label"]
 
 
 def _pick_summarizer(parts: list) -> dict:
     for p in parts:
-        if "resumidor" in (p.get("label") or "").lower():
+        if "summarizer" in (p.get("label") or "").lower() or "resumidor" in (p.get("label") or "").lower():
             return p
     return parts[0]
 
@@ -182,8 +182,8 @@ class Runner:
         prov = providers[synth_p["pkey"]]
         convo = "\n\n".join(f"{n}:\n{t}" for n, t in to_summarize)
         user = (
-            f"{build_goal_context(conv)}\n\nCONVERSA A RESUMIR:\n{convo}\n\n"
-            "Resuma em no máximo 800 palavras, mantendo dados concretos."
+            f"{build_goal_context(conv)}\n\nCONVERSATION TO SUMMARIZE:\n{convo}\n\n"
+            "Summarize in at most 800 words, keeping concrete data."
         )
 
         async def step(kind, payload):
@@ -194,7 +194,7 @@ class Runner:
         res = await prov.run(COMPRESS_SYSTEM, user, [], step, **kwargs)
         self.total_tokens += res.input_tokens + res.output_tokens
 
-        summary_label = f"Síntese (até rodada {rnd})"
+        summary_label = f"Synthesis (through round {rnd})"
         new_transcript = [(summary_label, res.text)] + list(keep)
 
         m = await store.save_message(
@@ -242,8 +242,8 @@ class Runner:
                     await self.emit("log", {
                         "level": "info",
                         "message": (
-                            f"Contexto comprimido: {before:,} → {after:,} chars "
-                            f"(rodada {rnd})"
+                            f"Context compressed: {before:,} → {after:,} chars "
+                            f"(round {rnd})"
                         ),
                     })
                     await self._emit_context_size(conv, new_transcript)
@@ -251,7 +251,7 @@ class Runner:
             except Exception as e:
                 await self.emit("log", {
                     "level": "warn",
-                    "message": f"Compressão falhou ({e}). Usando truncamento.",
+                    "message": f"Compression failed ({e}). Using truncation.",
                 })
 
         trimmed = _trim_transcript(
@@ -264,7 +264,7 @@ class Runner:
             await self.emit("log", {
                 "level": "info",
                 "message": (
-                    f"Contexto truncado: {before:,} → {after:,} chars (rodada {rnd})"
+                    f"Context truncated: {before:,} → {after:,} chars (round {rnd})"
                 ),
             })
         await self._emit_context_size(conv, trimmed)
@@ -296,18 +296,18 @@ class Runner:
         return True
 
     async def _drain_human(self, transcript: list):
-        """Mensagens humanas já foram salvas/transmitidas pela camada WS;
-        aqui entram na transcrição que as IAs veem."""
+        """Human messages were already saved/broadcast by the WS layer;
+        here they enter the transcript the AIs see."""
         delivered = []
         while not self.human_q.empty():
             item = self.human_q.get_nowait()
-            transcript.append(("Humano", item["text"]))
+            transcript.append(("Human", item["text"]))
             delivered.append(item)
         for item in delivered:
             await self.emit("human_ack", {
                 "message_id": item["id"],
                 "status": "delivered",
-                "detail": "Entregue — incluída no contexto das IAs.",
+                "detail": "Delivered — included in the AIs' context.",
                 "responder": None,
             })
 
@@ -322,7 +322,7 @@ class Runner:
     # ---- um turno de uma IA ----
     async def _turn(self, p, prov, conv, transcript, names, tools, rnd):
         key, label = p["pkey"], p["label"]
-        others = ", ".join(n for n in names if n != label) or "ninguém"
+        others = ", ".join(n for n in names if n != label) or "no one"
         system, user = build_prompt(conv, transcript, label, others, p["can_interact"], p["persona"])
         participant_tools = filter_tools_for_participant(tools, _run_config(conv), key)
         prov_kwargs = self._provider_kwargs(conv)
@@ -363,8 +363,8 @@ class Runner:
 
         convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript)
         user = (
-            f"{build_goal_context(conv)}\n\nCONVERSA:\n{convo}\n\n"
-            f"Responda ao humano como {responder_label}."
+            f"{build_goal_context(conv)}\n\nCONVERSATION:\n{convo}\n\n"
+            f"Reply to the human as {responder_label}."
         )
 
         await self.emit("agent_step",
@@ -378,7 +378,7 @@ class Runner:
 
         if use_synth:
             m = await store.save_message(
-                self.conv_id, 0, "synth", "Síntese", "synthesis", res.text,
+                self.conv_id, 0, "synth", "Synthesis", "synthesis", res.text,
                 {"model": prov.model, "followup": True},
             )
             usage_key = "synth"
@@ -424,10 +424,10 @@ class Runner:
                     providers[p["pkey"]] = prov
                 else:
                     await self.emit("log",
-                                    {"level": "warn", "message": f"Sem chave para {p['label']} — pulando."})
+                                    {"level": "warn", "message": f"No API key for {p['label']} — skipping."})
             parts = [p for p in parts if p["pkey"] in providers]
             if not parts:
-                await self.emit("error", {"message": "Nenhuma IA ativa com chave de API."})
+                await self.emit("error", {"message": "No active AI with an API key."})
                 await store.set_status(self.conv_id, "idle")
                 return
 
@@ -481,10 +481,10 @@ class Runner:
 
                 if budget and self.total_tokens >= budget:
                     await self.emit("log",
-                                    {"level": "warn", "message": f"Orçamento de {budget} tokens atingido."})
+                                    {"level": "warn", "message": f"Token budget of {budget} reached."})
                     break
 
-            # ---- síntese final ----
+            # ---- final synthesis ----
             if conv["config"].get("synthesize", True) and not self._stopped and await self._checkpoint():
                 synth_p = parts[0]
                 prov = providers[synth_p["pkey"]]
@@ -492,22 +492,22 @@ class Runner:
                 await self.emit("agent_step",
                                 {"participant": "synth", "kind": "status", "state": "thinking"})
                 deliver = ((conv.get("config") or {}).get("deliverable") or "").strip()
-                deliver_hint = f" Entregue exatamente o formato pedido em PRODUZIR AO FINAL: {deliver}." if deliver else ""
+                deliver_hint = f" Deliver exactly the format requested in DELIVER AT END: {deliver}." if deliver else ""
                 system = (
-                    "Você é o sintetizador. Leia a conversa e produza UMA resposta final, "
-                    "clara e acionável, atingindo o objetivo. Integre os melhores pontos e "
-                    "liste questões em aberto. Responda no idioma do objetivo."
+                    "You are the synthesizer. Read the conversation and produce ONE final response, "
+                    "clear and actionable, achieving the goal. Integrate the best points and "
+                    "list open questions. Respond in the same language as the goal."
                     + deliver_hint
                 )
                 convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript)
-                user = f"{goal_ctx}\n\nCONVERSA:\n{convo}\n\nProduza a resposta final."
+                user = f"{goal_ctx}\n\nCONVERSATION:\n{convo}\n\nProduce the final response."
 
                 async def step(kind, payload):
                     await self.emit("agent_step", {"participant": "synth", "kind": kind, **payload})
 
                 res = await prov.run(system, user, [], step, **prov_kwargs)
                 self.total_tokens += res.input_tokens + res.output_tokens
-                m = await store.save_message(self.conv_id, 0, "synth", "Síntese", "synthesis",
+                m = await store.save_message(self.conv_id, 0, "synth", "Synthesis", "synthesis",
                                              res.text, {"model": prov.model})
                 await store.save_usage(self.conv_id, "synth", 0, res.input_tokens,
                                        res.output_tokens, res.cost_usd, res.tool_calls)
@@ -544,11 +544,11 @@ class Runner:
                     providers[p["pkey"]] = prov
             parts = [p for p in parts if p["pkey"] in providers]
             if not parts:
-                await self.emit("error", {"message": "Nenhuma IA ativa com chave de API."})
+                await self.emit("error", {"message": "No active AI with an API key."})
                 if trigger_message_id:
                     await self._emit_human_ack(
                         trigger_message_id, "answered",
-                        "Não foi possível responder — nenhuma IA disponível.",
+                        "Could not reply — no AI available.",
                     )
                 return
 
@@ -577,7 +577,7 @@ class Runner:
 
                 await self._emit_human_ack(
                     message_id, "processing",
-                    f"{responder_label} está respondendo ao humano…",
+                    f"{responder_label} is replying to the human…",
                     responder_label,
                 )
 
@@ -585,14 +585,14 @@ class Runner:
                     await self._run_followup_turn(conv, parts, providers, transcript, responder_label)
                     await self._emit_human_ack(
                         message_id, "answered",
-                        "Resposta enviada. Você pode continuar a conversa.",
+                        "Reply sent. You can continue the conversation.",
                         responder_label,
                     )
                 except Exception as e:
                     await self.emit("log", {"level": "error", "message": str(e)})
                     await self._emit_human_ack(
                         message_id, "answered",
-                        f"Erro ao responder: {e}",
+                        f"Error replying: {e}",
                         responder_label,
                     )
 

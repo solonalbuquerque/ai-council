@@ -1,4 +1,4 @@
-"""Encerra todos os servidores ai-council (uvicorn/dev.py) nas portas locais."""
+"""Shut down all ai-council servers (uvicorn/dev.py) on local ports."""
 import sys
 import time
 import os
@@ -34,7 +34,7 @@ def kill_tree(pid: int) -> None:
 def main() -> None:
     my_pid = os.getpid()
 
-    # Workers órfãos do uvicorn (--reload)
+    # Orphan uvicorn workers (--reload)
     for proc in psutil.process_iter(["pid", "cmdline"]):
         try:
             cmd = " ".join(proc.info["cmdline"] or [])
@@ -47,7 +47,7 @@ def main() -> None:
             if "ai-council" in cmd.lower() or "aicouncil" in cmd.lower() or "multiprocessing.spawn" in cmd:
                 kill_tree(pid)
 
-    # Por porta
+    # By port
     for conn in psutil.net_connections(kind="inet"):
         if conn.status != psutil.CONN_LISTEN or not conn.laddr:
             continue
@@ -55,7 +55,7 @@ def main() -> None:
             continue
         kill_tree(conn.pid or 0)
 
-    # Por comando
+    # By command
     for proc in psutil.process_iter(["pid", "cmdline"]):
         try:
             cmd = " ".join(proc.info["cmdline"] or [])
@@ -70,14 +70,14 @@ def main() -> None:
             kill_tree(proc.info["pid"])
 
     time.sleep(2)
-    print("\nPortas:")
+    print("\nPorts:")
     for port in sorted(PORTS):
         owners = [
             c.pid
             for c in psutil.net_connections(kind="inet")
             if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port
         ]
-        print(f"  :{port} -> {'livre' if not owners else owners}")
+        print(f"  :{port} -> {'free' if not owners else owners}")
 
 
 if __name__ == "__main__":

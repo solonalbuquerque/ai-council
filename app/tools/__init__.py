@@ -1,4 +1,4 @@
-"""Monta a lista de ferramentas habilitadas para uma conversa."""
+"""Build the list of tools enabled for a conversation."""
 from app.tools.apify import apify_tool
 from app.tools.base import Tool
 from app.tools.web import web_fetch_tool, web_search_tool
@@ -7,7 +7,7 @@ from app.tools.web import web_fetch_tool, web_search_tool
 def filter_tools_for_participant(
     tools: list[Tool], config: dict, pkey: str,
 ) -> list[Tool]:
-    """Restringe ferramentas por participante quando config.tools_for está definido."""
+    """Restrict tools per participant when config.tools_for is set."""
     tools_for = (config or {}).get("tools_for")
     if not tools_for:
         return tools

@@ -1,4 +1,4 @@
-"""Ferramentas de web: busca e leitura de página."""
+"""Web tools: search and page fetch."""
 import os
 
 import httpx
@@ -24,9 +24,9 @@ async def _web_search(query: str, max_results: int = 5) -> str:
             f"- {it.get('title')}\n  {it.get('url')}\n  {(it.get('content') or '')[:300]}"
             for it in data.get("results", [])
         ]
-        return "RESULTADOS:\n" + "\n".join(out) if out else "Sem resultados."
+        return "RESULTS:\n" + "\n".join(out) if out else "No results."
 
-    # Fallback sem chave: DuckDuckGo HTML (best-effort, pode quebrar).
+    # Fallback without key: DuckDuckGo HTML (best-effort, may break).
     async with httpx.AsyncClient(timeout=30, headers={"User-Agent": _UA}) as c:
         r = await c.get("https://html.duckduckgo.com/html/", params={"q": query})
     soup = BeautifulSoup(r.text, "html.parser")
@@ -39,7 +39,7 @@ async def _web_search(query: str, max_results: int = 5) -> str:
                 f"- {a.get_text(strip=True)}\n  {a.get('href')}\n  "
                 f"{(sn.get_text(strip=True) if sn else '')[:300]}"
             )
-    return "RESULTADOS:\n" + "\n".join(out) if out else "Sem resultados (fallback DDG)."
+    return "RESULTS:\n" + "\n".join(out) if out else "No results (DDG fallback)."
 
 
 async def _web_fetch(url: str, max_chars: int = 3000) -> str:
@@ -57,12 +57,12 @@ async def _web_fetch(url: str, max_chars: int = 3000) -> str:
 
 web_search_tool = Tool(
     "web_search",
-    "Busca na web por uma consulta e retorna títulos, URLs e trechos.",
+    "Search the web for a query and return titles, URLs, and snippets.",
     {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "termo de busca"},
-            "max_results": {"type": "integer", "description": "1 a 10"},
+            "query": {"type": "string", "description": "search term"},
+            "max_results": {"type": "integer", "description": "1 to 10"},
         },
         "required": ["query"],
     },
@@ -71,7 +71,7 @@ web_search_tool = Tool(
 
 web_fetch_tool = Tool(
     "web_fetch",
-    "Baixa e extrai o texto principal de uma URL.",
+    "Download and extract the main text from a URL.",
     {
         "type": "object",
         "properties": {"url": {"type": "string"}},

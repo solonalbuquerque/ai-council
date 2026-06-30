@@ -1,4 +1,4 @@
-"""Detecção, teste e execução de CLIs locais."""
+"""Detect, test, and run local CLIs."""
 import asyncio
 import json
 import os
@@ -29,7 +29,7 @@ API_KEY_VARS = [
 
 
 def clean_cli_env(env: dict) -> dict:
-    """Remove chaves de API vazias para o CLI usar login nativo (OAuth ~/.claude etc.)."""
+    """Strip empty API keys so the CLI uses native login (OAuth ~/.claude etc.)."""
     env = dict(env)
     for k in API_KEY_VARS:
         if k in env and not str(env[k]).strip():
@@ -38,7 +38,7 @@ def clean_cli_env(env: dict) -> dict:
 
 
 def _inject_tokens(env: dict) -> dict:
-    """Injeta tokens salvos (ex.: CLAUDE_CODE_OAUTH_TOKEN) no ambiente do CLI."""
+    """Inject saved tokens (e.g. CLAUDE_CODE_OAUTH_TOKEN) into the CLI environment."""
     providers = load_config().get("providers", {})
     for pkey, spec in CLI_SPECS.items():
         token_env = spec.get("token_env")
@@ -67,9 +67,9 @@ def save_token(pkey: str, token: str | None) -> dict:
     """Salva (ou limpa) o token do provedor no cli_config.json."""
     spec = CLI_SPECS.get(pkey)
     if not spec:
-        return {"ok": False, "message": "Provedor desconhecido"}
+        return {"ok": False, "message": "Unknown provider"}
     if not spec.get("token_env"):
-        return {"ok": False, "message": "Este provedor não usa token."}
+        return {"ok": False, "message": "This provider does not use a token."}
 
     cfg = load_config()
     providers = cfg.setdefault("providers", {})
@@ -77,10 +77,10 @@ def save_token(pkey: str, token: str | None) -> dict:
     token = (token or "").strip()
     if token:
         prov["token"] = token
-        msg = "Token salvo. Clique em Testar."
+        msg = "Token saved. Click Test."
     else:
         prov.pop("token", None)
-        msg = "Token removido."
+        msg = "Token removed."
     save_config(cfg)
     return {"ok": True, "message": msg, "has_token": bool(token)}
 
@@ -124,7 +124,7 @@ def _search_paths() -> list[str]:
 
 
 def resolve_command(pkey: str) -> tuple[str | None, str | None]:
-    """Retorna (comando, caminho absoluto ou None)."""
+    """Return (command, absolute path or None)."""
     spec = CLI_SPECS.get(pkey)
     if not spec:
         return None, None
@@ -167,7 +167,7 @@ def _build_ping_argv(pkey: str, cmd: str, prompt: str) -> list[str]:
 
 
 def _codex_supports_model(model: str) -> bool:
-    """O codex (conta ChatGPT) só aceita modelos próprios; gpt-4o/gpt-4.1 dão 400."""
+    """Codex (ChatGPT account) only accepts its own models; gpt-4o/gpt-4.1 return 400."""
     m = (model or "").strip().lower()
     return m.startswith(("gpt-5", "o3", "o4", "codex"))
 
@@ -175,12 +175,12 @@ def _codex_supports_model(model: str) -> bool:
 def _build_run_argv(
     pkey: str, cmd: str, system: str, user_prompt: str, model: str | None
 ) -> tuple[list[str], str | None]:
-    """Retorna (argv, stdin_text).
+    """Return (argv, stdin_text).
 
-    Quando stdin_text != None, o prompt vai pelo STDIN em vez de argumento de
-    linha de comando. Isso é essencial nos wrappers .CMD do Windows (claude,
-    codex, gemini): rodados via cmd.exe, qualquer quebra de linha no argumento
-    trunca o comando — o CLI recebia só "OBJETIVO:" e perdia objetivo+histórico.
+    When stdin_text is not None, the prompt goes via STDIN instead of a command-line
+    argument. Essential on Windows .CMD wrappers (claude, codex, gemini): when run via
+    cmd.exe, any newline in the argument truncates the command — the CLI would only
+    receive \"GOAL:\" and lose goal+history.
     """
     combined = f"{system}\n\n{user_prompt}"
     if pkey == "claude":
@@ -190,8 +190,8 @@ def _build_run_argv(
         return argv, combined
     if pkey == "gpt":
         argv = [cmd, "exec", "--skip-git-repo-check", "-c", "approval=never"]
-        # O codex via conta ChatGPT só aceita modelos próprios (gpt-5*, o3, o4, codex).
-        # Modelos de API como gpt-4o causam 400; nesse caso usamos o default da conta.
+        # Codex via ChatGPT account only accepts its own models (gpt-5*, o3, o4, codex).
+        # API models like gpt-4o cause 400; in that case we use the account default.
         if model and _codex_supports_model(model):
             argv.extend(["-c", f"model={model}"])
         return argv, combined
@@ -201,7 +201,7 @@ def _build_run_argv(
             argv.extend(["-m", model])
         return argv, combined
     if pkey == "antigravity":
-        # agy.EXE roda via argv direto (sem shell), então quebras de linha são preservadas.
+        # agy.EXE runs via argv directly (no shell), so newlines are preserved.
         argv = [cmd, "-p", combined, "--print-timeout", "180s", "--dangerously-skip-permissions"]
         if model:
             argv.extend(["--model", model])
@@ -248,7 +248,7 @@ def _run_sync(
         else:
             proc = subprocess.run(argv, **kwargs)
     except subprocess.TimeoutExpired:
-        return -1, "", f"Timeout após {timeout}s"
+        return -1, "", f"Timeout after {timeout}s"
 
     stdout = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
     stderr = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
@@ -300,13 +300,13 @@ async def provider_status(pkey: str, *, ping: bool = False) -> dict:
     }
 
     if not path:
-        status["message"] = "CLI não encontrado no PATH."
+        status["message"] = "CLI not found in PATH."
         return status
 
     status["version"] = await get_version(path, pkey)
     status["installed"] = True
     status["status"] = "installed"
-    status["message"] = "Instalado — clique em Testar para validar autenticação."
+    status["message"] = "Installed — click Test to validate authentication."
 
     if ping:
         result = await test_provider(pkey)
@@ -327,18 +327,18 @@ async def test_provider(pkey: str, prompt: str | None = None) -> dict:
     spec = CLI_SPECS[pkey]
     cmd, path = resolve_command(pkey)
     if not path:
-        return {"ok": False, "status": "missing", "message": "CLI não instalado.", "response": None}
+        return {"ok": False, "status": "missing", "message": "CLI not installed.", "response": None}
 
     text = prompt or spec["ping_prompt"]
     argv = _build_ping_argv(pkey, path, text)
     code, stdout, stderr = await _run_process(argv)
 
     if code == 0 and stdout:
-        # Codex inclui metadados antes da resposta — pega últimas linhas úteis
+        # Codex includes metadata before the response — take the last useful lines
         lines = [ln.strip() for ln in stdout.splitlines() if ln.strip()]
         response = lines[-1] if lines else stdout
         if pkey == "gpt" and len(lines) > 1:
-            # resposta costuma ser a última linha após bloco "codex"
+            # response is usually the last line after the "codex" block
             for ln in reversed(lines):
                 if ln.lower() not in ("codex", "user", "tokens used") and not ln.startswith("---"):
                     response = ln
@@ -346,7 +346,7 @@ async def test_provider(pkey: str, prompt: str | None = None) -> dict:
         return {
             "ok": True,
             "status": "ok",
-            "message": "CLI autenticado e respondendo.",
+            "message": "CLI authenticated and responding.",
             "response": response,
             "raw": stdout[:4000],
         }
@@ -354,11 +354,11 @@ async def test_provider(pkey: str, prompt: str | None = None) -> dict:
     kind = _classify_error(stderr, stdout)
     if kind == "auth":
         raw = (stderr or stdout)[:2000]
-        message = f"Precisa autenticar. {spec['auth_help']}"
+        message = f"Authentication required. {spec['auth_help']}"
         if pkey == "gemini" and ("IneligibleTierError" in raw or "UNSUPPORTED_CLIENT" in raw):
             message = (
-                "Gemini CLI autenticou no navegador, mas sua conta individual/free tier não é mais "
-                "suportada por este cliente. Use conta enterprise/API key compatível ou o card Antigravity CLI."
+                "Gemini CLI authenticated in the browser, but individual/free tier accounts are no longer "
+                "supported by this client. Use enterprise/API key or the Antigravity CLI card."
             )
         return {
             "ok": False,
@@ -373,8 +373,8 @@ async def test_provider(pkey: str, prompt: str | None = None) -> dict:
             "ok": False,
             "status": "auth",
             "message": (
-                "O agy não retornou resposta (auth ausente no modo -p). "
-                "Faça login, copie a key gerada e cole no campo abaixo, depois Testar."
+                "agy returned no response (missing auth in -p mode). "
+                "Log in, copy the generated key, paste below, then Test."
             ),
             "response": None,
             "raw": "",
@@ -391,29 +391,28 @@ async def test_provider(pkey: str, prompt: str | None = None) -> dict:
 
 
 async def run_cli(pkey: str, system: str, user_prompt: str, model: str | None = None) -> tuple[str, str | None]:
-    """Executa CLI e retorna (texto, erro)."""
+    """Run CLI and return (text, error)."""
     cmd, path = resolve_command(pkey)
     if not path:
-        return "", "CLI não disponível"
+        return "", "CLI not available"
 
     argv, stdin_text = _build_run_argv(pkey, path, system, user_prompt, model)
     code, stdout, stderr = await _run_process(argv, timeout=180, stdin_data=stdin_text)
 
     if code == 0 and stdout:
-        # codex exec (lido via stdin) escreve a resposta completa no stdout e os
-        # metadados no stderr — então basta retornar o stdout inteiro.
+        # codex exec (read via stdin) writes the full response to stdout and metadata to stderr
         return stdout.strip(), None
 
     kind = _classify_error(stderr, stdout)
     if kind == "auth":
-        return "", f"CLI não autenticado. {CLI_SPECS[pkey]['auth_help']}"
-    return "", (stderr or stdout or "Erro desconhecido")[:800]
+        return "", f"CLI not authenticated. {CLI_SPECS[pkey]['auth_help']}"
+    return "", (stderr or stdout or "Unknown error")[:800]
 
 
 async def install_provider(pkey: str) -> dict:
     spec = CLI_SPECS.get(pkey)
     if not spec:
-        return {"ok": False, "message": "Provedor desconhecido"}
+        return {"ok": False, "message": "Unknown provider"}
 
     install_cmd = spec.get("install_windows") if os.name == "nt" else spec.get("install")
     install_cmd = install_cmd or spec["install"]
@@ -433,7 +432,7 @@ async def install_provider(pkey: str) -> dict:
                 timeout=INSTALL_TIMEOUT,
             )
         except subprocess.TimeoutExpired:
-            return -1, "", f"Instalação excedeu {INSTALL_TIMEOUT}s"
+            return -1, "", f"Installation exceeded {INSTALL_TIMEOUT}s"
         out = (proc.stdout or b"").decode("utf-8", errors="replace")
         err = (proc.stderr or b"").decode("utf-8", errors="replace")
         return proc.returncode or 0, out, err
@@ -443,20 +442,20 @@ async def install_provider(pkey: str) -> dict:
 
     return {
         "ok": ok,
-        "message": "Instalação concluída." if ok else (stderr or stdout or "Falha na instalação")[:800],
+        "message": "Installation complete." if ok else (stderr or stdout or "Installation failed")[:800],
         "output": (stdout + stderr)[:4000],
     }
 
 
 def _build_login_command(pkey: str) -> tuple[str | None, str | None]:
-    """Retorna (cmdline para shell, mensagem de erro se CLI ausente)."""
+    """Return (shell cmdline, error message if CLI missing)."""
     spec = CLI_SPECS.get(pkey)
     if not spec:
-        return None, "Provedor desconhecido"
+        return None, "Unknown provider"
 
     _, path = resolve_command(pkey)
     if not path:
-        return None, "CLI não instalado."
+        return None, "CLI not installed."
 
     import subprocess
 
@@ -465,16 +464,16 @@ def _build_login_command(pkey: str) -> tuple[str | None, str | None]:
 
 
 def launch_login(pkey: str) -> dict:
-    """Abre terminal nativo do SO com o comando de login do CLI."""
+    """Open the OS native terminal with the CLI login command."""
     spec = CLI_SPECS.get(pkey)
     if not spec:
-        return {"ok": False, "message": "Provedor desconhecido", "command": None}
+        return {"ok": False, "message": "Unknown provider", "command": None}
 
     if _in_docker():
         cmdline, _ = _build_login_command(pkey)
         return {
             "ok": False,
-            "message": "Login interativo não funciona dentro do Docker. Rode npm run dev na sua máquina.",
+            "message": "Interactive login does not work inside Docker. Run npm run dev on your machine.",
             "command": cmdline,
         }
 
@@ -516,7 +515,7 @@ def launch_login(pkey: str) -> dict:
             if not launched:
                 return {
                     "ok": False,
-                    "message": "Não foi possível abrir um terminal. Rode o comando manualmente:",
+                    "message": "Could not open a terminal. Run the command manually:",
                     "command": cmdline,
                 }
 
@@ -529,13 +528,13 @@ def launch_login(pkey: str) -> dict:
     except Exception as e:
         return {
             "ok": False,
-            "message": f"Falha ao abrir terminal: {e}. Rode manualmente:",
+            "message": f"Failed to open terminal: {e}. Run manually:",
             "command": cmdline,
         }
 
 
 def cli_available(pkey: str) -> bool:
-    """Síncrono: CLI instalado (sem testar auth)."""
+    """Sync: CLI installed (auth not tested)."""
     _, path = resolve_command(pkey)
     if not path:
         return False

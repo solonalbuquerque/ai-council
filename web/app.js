@@ -1,9 +1,9 @@
-/* ============ Conselho de IAs — frontend ============ */
+/* ============ AI Council — frontend ============ */
 const COLORS = {
   claude: "#d98a63", gpt: "#19c39c", gemini: "#5b8def",
   deepseek: "#9d7bf0", synth: "#e0b25a", human: "#46c6d8",
 };
-const LABELS = { claude: "Claude", gpt: "ChatGPT", gemini: "Gemini", deepseek: "DeepSeek", synth: "Síntese", human: "Humano" };
+const LABELS = { claude: "Claude", gpt: "ChatGPT", gemini: "Gemini", deepseek: "DeepSeek", synth: "Synthesis", human: "Human" };
 
 const state = {
   catalog: null,
@@ -13,7 +13,7 @@ const state = {
   presets: [],
   cid: null,
   ws: null,
-  participants: [],   // da conversa aberta
+  participants: [],   // from open conversation
   seenMsgIds: new Set(),
   scoreboard: {},
   contextChars: 0,
@@ -44,9 +44,9 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const esc = (s) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const fmt = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
-const nf = (n) => (n || 0).toLocaleString("pt-BR");
+const nf = (n) => (n || 0).toLocaleString("en-US");
 const money = (n) => "$" + (n || 0).toFixed(4);
-const PLACEHOLDER_TITLE = "Uma nova conversa";
+const PLACEHOLDER_TITLE = "A new conversation";
 const PROVIDER_ORDER = ["claude", "gpt", "gemini", "deepseek"];
 
 function providerColor(key) {
@@ -60,7 +60,7 @@ function providerOptions(selected) {
   return PROVIDER_ORDER.filter((k) => cat[k]).map((k) => {
     const dis = avail.includes(k) ? "" : " disabled";
     const sel = k === selected ? " selected" : "";
-    return `<option value="${k}"${dis}${sel}>${esc(cat[k].label)}${avail.includes(k) ? "" : " (indisponível)"}</option>`;
+    return `<option value="${k}"${dis}${sel}>${esc(cat[k].label)}${avail.includes(k) ? "" : " (unavailable)"}</option>`;
   }).join("");
 }
 
@@ -70,7 +70,7 @@ function modelOptionsFor(pkey, selectedModel) {
   const models = (info.models || []).map((m) =>
     `<option value="${esc(m)}"${m === selectedModel ? " selected" : ""}>${esc(m)}</option>`
   ).join("");
-  return models + `<option value="__custom__"${selectedModel && !(info.models || []).includes(selectedModel) ? " selected" : ""}>customizado…</option>`;
+  return models + `<option value="__custom__"${selectedModel && !(info.models || []).includes(selectedModel) ? " selected" : ""}>custom…</option>`;
 }
 
 function applyTitle(cid, title) {
@@ -91,7 +91,7 @@ async function generateTitle(cid, goal, participants) {
     });
     if (title && title !== PLACEHOLDER_TITLE) applyTitle(cid, title);
   } catch (e) {
-    /* mantém placeholder */
+    /* keep placeholder */
   }
 }
 
@@ -197,7 +197,7 @@ function wireUI() {
 }
 
 function exportConversation() {
-  if (!state.cid) { alert("Abra uma conversa primeiro."); return; }
+  if (!state.cid) { alert("Open a conversation first."); return; }
   window.location.href = `/api/conversations/${state.cid}/export`;
 }
 
@@ -206,7 +206,7 @@ async function loadConversations() {
   let list = [];
   try { list = await api("/api/conversations"); } catch (e) {}
   const box = $("conv-list"); box.innerHTML = "";
-  if (!list.length) { box.appendChild(el("div", "note", "Nenhuma conversa ainda.")); return; }
+  if (!list.length) { box.appendChild(el("div", "note", "No conversations yet.")); return; }
   for (const c of list) {
     const item = el("div", "conv-item" + (c.id === state.cid ? " active" : ""));
     item.dataset.id = c.id;
@@ -214,11 +214,11 @@ async function loadConversations() {
     head.appendChild(el("div", "t", esc(c.title)));
     const orgBtn = el("button", "conv-org", "ORG");
     orgBtn.type = "button";
-    orgBtn.title = "Organograma de execução";
+    orgBtn.title = "Execution org chart";
     orgBtn.onclick = (e) => { e.stopPropagation(); openOrgModal(c.id); };
     head.appendChild(orgBtn);
     item.appendChild(head);
-    item.appendChild(el("div", "g", esc(c.goal || "sem objetivo")));
+    item.appendChild(el("div", "g", esc(c.goal || "no goal")));
     item.appendChild(el("div", "s", esc(c.status)));
     item.onclick = () => openConversation(c.id);
     box.appendChild(item);
@@ -241,15 +241,15 @@ function connectWS(cid, opts = {}) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/${cid}`);
   state.ws = ws;
-  $("conn").innerHTML = "●&nbsp; conectando";
+  $("conn").innerHTML = "●&nbsp; connecting";
   ws.onopen = () => {
-    $("conn").innerHTML = "<b style='color:#19c39c'>●</b>&nbsp; conectado";
+    $("conn").innerHTML = "<b style='color:#19c39c'>●</b>&nbsp; connected";
     if (opts.autoStart) {
-      setHumanFeedback("Iniciando debate…", "processing");
+      setHumanFeedback("Starting debate…", "processing");
       send({ action: "start" });
     }
   };
-  ws.onclose = () => { $("conn").innerHTML = "●&nbsp; desconectado"; };
+  ws.onclose = () => { $("conn").innerHTML = "●&nbsp; disconnected"; };
   ws.onmessage = (ev) => handleEvent(JSON.parse(ev.data));
 }
 
@@ -271,27 +271,27 @@ function parseHumanCommand(text) {
 function handleHumanCommand(name) {
   if (name === "start") {
     if (state.status === "running") {
-      setHumanFeedback("Execução em andamento — use /stop para interromper.", "warn");
+      setHumanFeedback("Run in progress — use /stop to interrupt.", "warn");
       return;
     }
     if (state.status === "paused") {
-      setHumanFeedback("Execução pausada — use Retomar ou /stop.", "warn");
+      setHumanFeedback("Run paused — use Resume or /stop.", "warn");
       return;
     }
-    setHumanFeedback("Iniciando debate…", "processing");
+    setHumanFeedback("Starting debate…", "processing");
     send({ action: "start" });
     return;
   }
   if (name === "stop") {
     if (state.status !== "running" && state.status !== "paused") {
-      setHumanFeedback("Nenhuma execução ativa para parar.", "warn");
+      setHumanFeedback("No active run to stop.", "warn");
       return;
     }
-    setHumanFeedback("Parando execução…", "processing");
+    setHumanFeedback("Stopping run…", "processing");
     send({ action: "stop" });
     return;
   }
-  setHumanFeedback("Comando desconhecido. Use /start ou /stop.", "warn");
+  setHumanFeedback("Unknown command. Use /start or /stop.", "warn");
 }
 
 function sendHuman() {
@@ -302,7 +302,7 @@ function sendHuman() {
     handleHumanCommand(parseHumanCommand(text));
     return;
   }
-  setHumanFeedback("Enviando…", "processing");
+  setHumanFeedback("Sending…", "processing");
   send({ action: "human", text });
 }
 
@@ -319,19 +319,19 @@ function updateHumanInputHint() {
       !["running", "paused", "done", "stopped", "idle", "error"].includes(state.status)) {
     return;
   }
-  const cmdHint = "Comandos: /start (iniciar debate), /stop (parar).";
+  const cmdHint = "Commands: /start (start debate), /stop (stop).";
   let hint = "";
   let kind = "idle";
   if (state.status === "running") {
-    hint = cmdHint + " Durante a execução, as IAs lerão sua mensagem no próximo turno.";
+    hint = cmdHint + " During the run, AIs will read your message on the next turn.";
     kind = "queued";
   } else if (state.status === "paused") {
-    hint = cmdHint + " Execução pausada — mensagem ficará na fila até retomar.";
+    hint = cmdHint + " Run paused — message will queue until you resume.";
     kind = "warn";
   } else if (state.hasPriorExecution && (state.status === "done" || state.status === "stopped")) {
-    hint = cmdHint + " Após o debate, a Síntese (ou última IA) responde ao humano. Use /start para rodar de novo.";
+    hint = cmdHint + " After the debate, Synthesis (or the last AI) replies to you. Use /start to run again.";
   } else {
-    hint = cmdHint + " Ou escreva uma mensagem para as IAs.";
+    hint = cmdHint + " Or write a message for the AIs.";
   }
   setHumanFeedback(hint, kind);
 }
@@ -366,7 +366,7 @@ function handleEvent(msg) {
   switch (msg.type) {
     case "snapshot": renderSnapshot(p); break;
     case "status": setStatus(p.state); pushTraceEvent("status", p); break;
-    case "round": updateBadge("round", `Rodada <b>${p.round}/${p.total}</b>`); pushTraceEvent("round", p); break;
+    case "round": updateBadge("round", `Round <b>${p.round}/${p.total}</b>`); pushTraceEvent("round", p); break;
     case "turn_start": pushTraceEvent("turn_start", p); break;
     case "message":
       appendMessage(p);
@@ -385,7 +385,7 @@ function handleEvent(msg) {
       renderScoreboard();
       break;
     case "context_compressed":
-      logLine("info", `Contexto comprimido: ${nf(p.chars_before)} → ${nf(p.chars_after)} chars (rodada ${p.round})`);
+      logLine("info", `Context compressed: ${nf(p.chars_before)} → ${nf(p.chars_after)} chars (round ${p.round})`);
       pushTraceEvent("context_compressed", p);
       break;
     case "log": logLine(p.level, p.message); pushTraceEvent("log", p); break;
@@ -432,15 +432,15 @@ function renderSnapshot(c) {
 
   // badges
   const b = $("cv-badges"); b.innerHTML = "";
-  const mode = c.mode === "parallel" ? "Paralelo" : "Sequencial";
-  b.appendChild(el("span", "badge", `Modo <b>${mode}</b>`));
-  b.appendChild(el("span", "badge", `<span id="bdg-round">Rodada <b>0/${c.max_rounds}</b></span>`));
-  b.appendChild(el("span", "badge", `Orçamento <b>${c.token_budget ? nf(c.token_budget) : "∞"}</b>`));
+  const mode = c.mode === "parallel" ? "Parallel" : "Sequential";
+  b.appendChild(el("span", "badge", `Mode <b>${mode}</b>`));
+  b.appendChild(el("span", "badge", `<span id="bdg-round">Round <b>0/${c.max_rounds}</b></span>`));
+  b.appendChild(el("span", "badge", `Budget <b>${c.token_budget ? nf(c.token_budget) : "∞"}</b>`));
   const tl = [];
   if (c.config?.web) tl.push("web");
   if (c.config?.apify) tl.push("apify");
   if (c.config?.mcp) tl.push("mcp");
-  b.appendChild(el("span", "badge", `Ferramentas <b>${tl.join(", ") || "—"}</b>`));
+  b.appendChild(el("span", "badge", `Tools <b>${tl.join(", ") || "—"}</b>`));
 
   buildPanes();
   renderScoreboard();
@@ -448,7 +448,7 @@ function renderSnapshot(c) {
   // transcript
   const t = $("transcript"); t.innerHTML = "";
   const msgs = c.messages || [];
-  if (!msgs.length) t.appendChild(el("div", "t-empty", "A transcrição aparece aqui conforme as IAs falam."));
+  if (!msgs.length) t.appendChild(el("div", "t-empty", "The transcript appears here as the AIs speak."));
   else for (const m of msgs) appendMessage(m, true);
   scrollTranscriptToBottom();
 
@@ -472,13 +472,13 @@ function renderConvBrief(config) {
   box.innerHTML = "";
   if (stop) {
     const item = el("div", "brief-item");
-    item.appendChild(el("div", "brief-k", "Encerrar quando"));
+    item.appendChild(el("div", "brief-k", "Stop when"));
     item.appendChild(el("div", "brief-v", esc(stop)));
     box.appendChild(item);
   }
   if (deliver) {
     const item = el("div", "brief-item");
-    item.appendChild(el("div", "brief-k", "Produzir ao final"));
+    item.appendChild(el("div", "brief-k", "Deliver at end"));
     item.appendChild(el("div", "brief-v", esc(deliver)));
     box.appendChild(item);
   }
@@ -489,11 +489,11 @@ function buildPanes() {
   const box = $("panes"); box.innerHTML = "";
   const active = state.participants.filter((p) => p.active);
   for (const p of active) box.appendChild(makePane(p.pkey, p.label, p.model));
-  box.appendChild(makePane("synth", "Síntese", ""));
+  box.appendChild(makePane("synth", "Synthesis", ""));
   // system log pane
   const sys = el("div", "term system");
   sys.id = "term-system";
-  sys.appendChild(el("div", "th", `<span class="dot"></span><span class="nm">Log do sistema</span><span class="st" id="st-system"></span>`));
+  sys.appendChild(el("div", "th", `<span class="dot"></span><span class="nm">System log</span><span class="st" id="st-system"></span>`));
   sys.appendChild(el("div", "tl", "")).id = "tl-system";
   box.appendChild(sys);
 }
@@ -505,7 +505,7 @@ function makePane(key, label, model) {
   t.appendChild(el("div", "th",
     `<span class="dot"></span><span class="nm">${esc(label)}</span>` +
     (model ? `<span class="st" style="text-transform:none;color:#5d6478">${esc(model)}</span>` : "") +
-    `<span class="st" id="st-${key}">aguardando</span>`));
+    `<span class="st" id="st-${key}">waiting</span>`));
   const tl = el("div", "tl"); tl.id = "tl-" + key;
   t.appendChild(tl);
   return t;
@@ -521,18 +521,18 @@ function setTermStatus(key, state_) {
   const st = $("st-" + key);
   if (!st) return;
   st.className = "st " + state_;
-  st.textContent = { thinking: "pensando…", done: "pronto", error: "erro" }[state_] || state_;
+  st.textContent = { thinking: "thinking…", done: "done", error: "error" }[state_] || state_;
 }
 
 function agentStep(p) {
   const key = p.participant;
   if (!$("term-" + key)) {
-    // pane criado sob demanda (ex.: síntese)
+    // pane created on demand (e.g. synthesis)
     $("panes").insertBefore(makePane(key, LABELS[key] || key, ""), $("term-system"));
   }
   if (p.kind === "status") {
     setTermStatus(key, p.state);
-    if (p.state === "thinking") termLine(key, "", `<span class="pfx">▶</span> iniciando turno${p.round ? " (rodada " + p.round + ")" : ""}`);
+    if (p.state === "thinking") termLine(key, "", `<span class="pfx">▶</span> starting turn${p.round ? " (round " + p.round + ")" : ""}`);
   } else if (p.kind === "tool_call") {
     const args = JSON.stringify(p.args || {});
     termLine(key, "tool", `<span class="pfx">🔧</span> ${esc(p.tool)}(${esc(args.slice(0, 160))})`);
@@ -562,10 +562,10 @@ function appendMessage(m, fromSnapshot) {
   const cls = role === "synthesis" ? "synth" : role === "human" ? "human" : "";
   const card = el("div", "msg " + cls);
   card.style.setProperty("--accent", providerColor(key));
-  const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("pt-BR") : "";
+  const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US") : "";
   const model = m.meta?.model ? " · " + esc(m.meta.model) : "";
   card.appendChild(el("div", "mh",
-    `<span class="tag">${esc(m.speaker_label)}</span><span class="meta">${m.round ? "rodada " + m.round + " · " : ""}${time}${model}</span>`));
+    `<span class="tag">${esc(m.speaker_label)}</span><span class="meta">${m.round ? "round " + m.round + " · " : ""}${time}${model}</span>`));
   card.appendChild(el("div", "mb", fmt(m.content)));
   t.appendChild(card);
   if (!fromSnapshot) t.scrollTop = t.scrollHeight;
@@ -582,9 +582,9 @@ function renderScoreboard() {
     ttools += s.tool_calls || 0; tturns += s.turns || 0;
     box.appendChild(scoreCard(p.pkey, p.label, p.model, s));
   }
-  // síntese, se houver gasto
+  // synthesis, if there was usage
   if (state.scoreboard.synth) {
-    box.appendChild(scoreCard("synth", "Síntese", "", state.scoreboard.synth));
+    box.appendChild(scoreCard("synth", "Synthesis", "", state.scoreboard.synth));
     const s = state.scoreboard.synth;
     tin += s.input_tokens || 0; tout += s.output_tokens || 0; tcost += s.cost_usd || 0; ttools += s.tool_calls || 0;
   }
@@ -595,16 +595,16 @@ function renderScoreboard() {
     : 0;
   const ctxBarColor = ctxPct >= 90 ? "var(--danger)" : ctxPct >= 70 ? "var(--warn)" : "var(--ok)";
   const budgetLine = state.tokenBudget
-    ? `<div>orçamento <b>${nf(state.totalTokensRun)}</b> / ${nf(state.tokenBudget)}</div>`
+    ? `<div>budget <b>${nf(state.totalTokensRun)}</b> / ${nf(state.tokenBudget)}</div>`
     : "";
   total.appendChild(el("div", "grid",
-    `<div>entrada <b>${nf(tin)}</b></div><div>saída <b>${nf(tout)}</b></div>` +
-    `<div>gasto <b>${money(tcost)}</b></div><div>ferram. <b>${nf(ttools)}</b></div>` +
-    `<div>contexto <b>~${nf(Math.round(state.contextChars / 4))}</b> tok</div>` +
+    `<div>input <b>${nf(tin)}</b></div><div>output <b>${nf(tout)}</b></div>` +
+    `<div>cost <b>${money(tcost)}</b></div><div>tools <b>${nf(ttools)}</b></div>` +
+    `<div>context <b>~${nf(Math.round(state.contextChars / 4))}</b> tok</div>` +
     budgetLine));
   const ctxBar = el("div", "ctx-bar-wrap");
   ctxBar.innerHTML =
-    `<div class="ctx-bar-label">Próximo prompt: ~${nf(state.contextChars)} chars (${ctxPct}% do limite)</div>` +
+    `<div class="ctx-bar-label">Next prompt: ~${nf(state.contextChars)} chars (${ctxPct}% of limit)</div>` +
     `<div class="ctx-bar"><div class="ctx-bar-fill" style="width:${ctxPct}%;background:${ctxBarColor}"></div></div>`;
   total.appendChild(ctxBar);
   box.appendChild(total);
@@ -620,9 +620,9 @@ function scoreCard(key, label, model, s) {
   c.appendChild(el("div", "h",
     `<span class="dot"></span><span class="nm">${esc(label)}</span><span class="md">${esc(model || "")}</span>`));
   c.appendChild(el("div", "grid",
-    `<div>entrada <b>${nf(s.input_tokens)}</b></div><div>saída <b>${nf(s.output_tokens)}</b></div>` +
-    `<div>gasto <b>${money(s.cost_usd)}</b></div><div>prontos <b>${nf(s.turns)}</b></div>` +
-    `<div>ferram. <b>${nf(s.tool_calls)}</b></div>`));
+    `<div>input <b>${nf(s.input_tokens)}</b></div><div>output <b>${nf(s.output_tokens)}</b></div>` +
+    `<div>cost <b>${money(s.cost_usd)}</b></div><div>turns <b>${nf(s.turns)}</b></div>` +
+    `<div>tools <b>${nf(s.tool_calls)}</b></div>`));
   return c;
 }
 
@@ -630,14 +630,14 @@ function scoreCard(key, label, model, s) {
 function setStatus(stateStr) {
   state.status = stateStr;
   $("led").className = "led " + stateStr;
-  const txt = { running: "rodando", paused: "pausado", done: "concluído", stopped: "parado", error: "erro", idle: "ocioso" }[stateStr] || stateStr;
+  const txt = { running: "running", paused: "paused", done: "done", stopped: "stopped", error: "error", idle: "idle" }[stateStr] || stateStr;
   $("status-txt").textContent = txt;
 
   const running = stateStr === "running";
   const paused = stateStr === "paused";
   $("btn-start").disabled = running || paused;
   $("btn-pause").disabled = !(running || paused);
-  $("btn-pause").innerHTML = paused ? "▶ Retomar" : "⏸ Pausar";
+  $("btn-pause").innerHTML = paused ? "▶ Resume" : "⏸ Pause";
   $("btn-stop").disabled = !(running || paused);
   state.humanFeedback = { text: "", kind: "idle" };
   updateHumanInputHint();
@@ -683,7 +683,7 @@ function renderAgentsList() {
   if (!box) return;
   box.innerHTML = "";
   if (!state.agents.length) {
-    box.appendChild(el("div", "note", "Nenhum agente salvo ainda."));
+    box.appendChild(el("div", "note", "No saved agents yet."));
     return;
   }
   for (const a of state.agents) {
@@ -693,7 +693,7 @@ function renderAgentsList() {
       `<div class="agent-card-head">` +
       `<span class="nm">${esc(a.name)}</span>` +
       `<span class="src">${esc(src)}</span>` +
-      `<button type="button" class="btn ghost agent-del" data-id="${esc(a.id)}">Remover</button>` +
+      `<button type="button" class="btn ghost agent-del" data-id="${esc(a.id)}">Remove</button>` +
       `</div>` +
       `<div class="agent-desc">${esc((a.description || "").slice(0, 220))}${(a.description || "").length > 220 ? "…" : ""}</div>`;
     card.querySelector(".agent-del").onclick = () => deleteAgent(a.id);
@@ -711,7 +711,7 @@ function renderAgentsPresets() {
     const card = el("div", "agent-card preset" + (exists ? " added" : ""));
     card.innerHTML =
       `<div class="agent-card-head"><span class="nm">${esc(p.name)}</span>` +
-      `<span class="src">${exists ? "já na biblioteca" : "clique para adicionar"}</span></div>` +
+      `<span class="src">${exists ? "already in library" : "click to add"}</span></div>` +
       `<div class="agent-desc">${esc((p.description || "").slice(0, 160))}…</div>`;
     if (!exists) {
       card.onclick = () => addPresetAgent(p);
@@ -730,24 +730,24 @@ async function addPresetAgent(preset) {
     });
     await loadAgents();
   } catch (e) {
-    alert("Erro ao adicionar preset: " + e.message);
+    alert("Error adding preset: " + e.message);
   }
 }
 
 async function deleteAgent(id) {
-  if (!confirm("Remover este agente da biblioteca?")) return;
+  if (!confirm("Remove this agent from the library?")) return;
   try {
     await api(`/api/agents/${id}`, { method: "DELETE" });
     await loadAgents();
   } catch (e) {
-    alert("Erro ao remover: " + e.message);
+    alert("Error removing: " + e.message);
   }
 }
 
 async function fetchAgentUrl() {
   const url = $("agent-url").value.trim();
   const msg = $("agent-url-msg");
-  msg.textContent = "Buscando…";
+  msg.textContent = "Fetching…";
   try {
     const data = await api("/api/agents/import-url", {
       method: "POST",
@@ -759,17 +759,17 @@ async function fetchAgentUrl() {
     $("agent-url-name").value = data.name || "";
     $("agent-url-desc").value = data.description || "";
     $("agent-url-preview").style.display = "block";
-    msg.textContent = "Conteúdo importado — revise e salve.";
+    msg.textContent = "Content imported — review and save.";
   } catch (e) {
     $("agent-url-preview").style.display = "none";
-    msg.textContent = "Erro: " + e.message;
+    msg.textContent = "Error: " + e.message;
   }
 }
 
 async function saveAgentFromUrl() {
   const name = $("agent-url-name").value.trim();
   const description = $("agent-url-desc").value.trim();
-  if (!name || !description) { alert("Nome e descrição são obrigatórios."); return; }
+  if (!name || !description) { alert("Name and description are required."); return; }
   try {
     await api("/api/agents", {
       method: "POST",
@@ -785,14 +785,14 @@ async function saveAgentFromUrl() {
     state.urlImport = null;
     await loadAgents();
   } catch (e) {
-    alert("Erro ao salvar: " + e.message);
+    alert("Error saving: " + e.message);
   }
 }
 
 async function saveAgentManual() {
   const name = $("agent-manual-name").value.trim();
   const description = $("agent-manual-desc").value.trim();
-  if (!name || !description) { alert("Nome e descrição são obrigatórios."); return; }
+  if (!name || !description) { alert("Name and description are required."); return; }
   try {
     await api("/api/agents", {
       method: "POST",
@@ -803,7 +803,7 @@ async function saveAgentManual() {
     $("agent-manual-desc").value = "";
     await loadAgents();
   } catch (e) {
-    alert("Erro ao salvar: " + e.message);
+    alert("Error saving: " + e.message);
   }
 }
 
@@ -827,14 +827,14 @@ function buildConvAgentRows() {
     card.innerHTML =
       `<div class="ph">` +
       `<span class="dot"></span><span class="nm">${esc(a.name)}</span>` +
-      `<label class="chk" style="margin-left:auto"><input type="checkbox" class="a-active" data-id="${esc(a.id)}" /> usar</label>` +
+      `<label class="chk" style="margin-left:auto"><input type="checkbox" class="a-active" data-id="${esc(a.id)}" /> use</label>` +
       `</div>` +
       `<div class="agent-desc note">${esc((a.description || "").slice(0, 120))}${(a.description || "").length > 120 ? "…" : ""}</div>` +
       `<div class="pgrid a-config" data-id="${esc(a.id)}" style="display:none">` +
       `<div><label class="note">CLI</label><select class="a-pkey" data-id="${esc(a.id)}">${providerOptions(defaultPkey)}</select></div>` +
-      `<div><label class="note">Modelo</label><select class="a-model" data-id="${esc(a.id)}">${models}</select>` +
-      `<input type="text" class="a-model-custom" data-id="${esc(a.id)}" placeholder="modelo customizado" style="display:none;margin-top:6px" /></div>` +
-      `<div><label class="note">Interação</label><div><label class="chk"><input type="checkbox" class="a-interact" data-id="${esc(a.id)}" checked /> pode perguntar / trocar ideias</label></div></div>` +
+      `<div><label class="note">Model</label><select class="a-model" data-id="${esc(a.id)}">${models}</select>` +
+      `<input type="text" class="a-model-custom" data-id="${esc(a.id)}" placeholder="custom model" style="display:none;margin-top:6px" /></div>` +
+      `<div><label class="note">Interaction</label><div><label class="chk"><input type="checkbox" class="a-interact" data-id="${esc(a.id)}" checked /> can ask / exchange ideas</label></div></div>` +
       `</div>`;
     box.appendChild(card);
   }
@@ -928,7 +928,7 @@ function updateBudgetWarning() {
 function buildToolsForConfig(agentParts, adhocParts, webEnabled) {
   if (!webEnabled) return undefined;
   const all = [...agentParts, ...adhocParts];
-  const researcher = all.find((p) => /pesquisador/i.test(p.label || ""));
+  const researcher = all.find((p) => /researcher|pesquisador/i.test(p.label || ""));
   if (!researcher) return undefined;
   return { [researcher.pkey]: ["web_search", "web_fetch"] };
 }
@@ -944,8 +944,8 @@ function updateConvEstimate() {
   const rounds = parseInt($("f-rounds")?.value, 10) || 3;
   const turns = n * rounds;
   box.textContent = n
-    ? `${n} participante(s) × ${rounds} rodada(s) = até ${turns} turnos de IA`
-    : "Selecione ao menos um participante.";
+    ? `${n} participant(s) × ${rounds} round(s) = up to ${turns} AI turns`
+    : "Select at least one participant.";
   if (warn) {
     const bases = all.map((p) => (p.pkey || "").split(":")[0]);
     const seen = new Set();
@@ -958,7 +958,7 @@ function updateConvEstimate() {
       const labels = [...new Set(dupes)].map((b) => LABELS[b] || b).join(", ");
       warn.style.display = "block";
       warn.textContent =
-        `Provedor duplicado (${labels}) — cada turno consome tokens separadamente. Considere desativar participantes ad-hoc redundantes.`;
+        `Duplicate provider (${labels}) — each turn consumes tokens separately. Consider disabling redundant ad-hoc participants.`;
     } else {
       warn.style.display = "none";
       warn.textContent = "";
@@ -996,13 +996,13 @@ function buildParticipantRows() {
     const models = (info.models || []).map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
     card.innerHTML =
       `<div class="ph"><span class="dot"></span><span class="nm">${esc(info.label)}</span>` +
-      `<label class="chk" style="margin-left:auto"><input type="checkbox" class="p-active" data-key="${key}" ${checkAdhoc ? "checked" : ""} ${isAvail ? "" : "disabled"} /> ativa</label></div>` +
-      (isAvail ? "" : `<div class="note">Indisponível — <a href="/settings" style="color:var(--gemini)">configure o CLI</a> ou defina chave no .env.</div>`) +
+      `<label class="chk" style="margin-left:auto"><input type="checkbox" class="p-active" data-key="${key}" ${checkAdhoc ? "checked" : ""} ${isAvail ? "" : "disabled"} /> active</label></div>` +
+      (isAvail ? "" : `<div class="note">Unavailable — <a href="/settings" style="color:var(--gemini)">configure CLI</a> or set key in .env.</div>`) +
       `<div class="pgrid">` +
-      `<div><label class="note">Modelo</label><select class="p-model" data-key="${key}">${models}<option value="__custom__">customizado…</option></select>` +
-      `<input type="text" class="p-model-custom" data-key="${key}" placeholder="modelo customizado" style="display:none;margin-top:6px" /></div>` +
-      `<div><label class="note">Interação</label><div><label class="chk"><input type="checkbox" class="p-interact" data-key="${key}" checked /> pode perguntar / trocar ideias</label></div></div>` +
-      `<div class="full"><label class="note">Persona (opcional)</label><input type="text" class="p-persona" data-key="${key}" placeholder="Ex.: cético, focado em riscos" /></div>` +
+      `<div><label class="note">Model</label><select class="p-model" data-key="${key}">${models}<option value="__custom__">custom…</option></select>` +
+      `<input type="text" class="p-model-custom" data-key="${key}" placeholder="custom model" style="display:none;margin-top:6px" /></div>` +
+      `<div><label class="note">Interaction</label><div><label class="chk"><input type="checkbox" class="p-interact" data-key="${key}" checked /> can ask / exchange ideas</label></div></div>` +
+      `<div class="full"><label class="note">Persona (optional)</label><input type="text" class="p-persona" data-key="${key}" placeholder="E.g.: skeptical, risk-focused" /></div>` +
       `</div>`;
     box.appendChild(card);
   }
@@ -1032,12 +1032,12 @@ async function createConversation() {
   const adhocParts = collectAdhocParticipants();
   const participants = [...agentParts, ...adhocParts];
   if (!participants.length) {
-    alert("Selecione ao menos um agente (com CLI/modelo) ou um participante ad-hoc.");
+    alert("Select at least one agent (with CLI/model) or an ad-hoc participant.");
     return;
   }
 
   const goal = $("f-goal").value.trim();
-  if (!goal) { alert("Informe o objetivo da conversa."); return; }
+  if (!goal) { alert("Enter the conversation goal."); return; }
   const stopWhen = $("f-stop-when").value.trim();
   const deliverable = $("f-deliverable").value.trim();
 
@@ -1077,7 +1077,7 @@ async function createConversation() {
     await openConversation(id, { replaceUrl: true, autoStart: true });
     generateTitle(id, goal, participants);
   } catch (e) {
-    alert("Erro ao criar conversa: " + e.message);
+    alert("Error creating conversation: " + e.message);
   }
 }
 
@@ -1111,7 +1111,7 @@ function buildOrgTree(events, runIndex, participants, messages) {
     return buildOrgTreeFromMessages(messages, runIndex);
   }
 
-  const root = makeOrgNode("run", `Execução ${runIndex}`, "run", "pending", null, []);
+  const root = makeOrgNode("run", `Run ${runIndex}`, "run", "pending", null, []);
   let currentRound = null;
   let currentTurn = null;
   let pendingTool = null;
@@ -1122,21 +1122,21 @@ function buildOrgTree(events, runIndex, participants, messages) {
     const p = ev.payload || {};
     switch (ev.type) {
       case "run_start":
-        root.label = `Execução ${runIndex}`;
+        root.label = `Run ${runIndex}`;
         root.logs = [
-          `Objetivo: ${p.goal || "—"}`,
-          `Modo: ${p.mode === "parallel" ? "Paralelo" : "Sequencial"}`,
-          `Rodadas: ${p.max_rounds || "?"}`,
+          `Goal: ${p.goal || "—"}`,
+          `Mode: ${p.mode === "parallel" ? "Parallel" : "Sequential"}`,
+          `Rounds: ${p.max_rounds || "?"}`,
         ];
-        if (p.stop_when) root.logs.push(`Encerrar quando: ${p.stop_when}`);
-        if (p.deliverable) root.logs.push(`Produzir ao final: ${p.deliverable}`);
+        if (p.stop_when) root.logs.push(`Stop when: ${p.stop_when}`);
+        if (p.deliverable) root.logs.push(`Deliver at end: ${p.deliverable}`);
         root.status = "active";
         break;
       case "round":
         currentTurn = null;
         pendingTool = null;
         currentRound = makeOrgNode(
-          `round-${p.round}`, `Rodada ${p.round}/${p.total}`, "round", "done", null, [],
+          `round-${p.round}`, `Round ${p.round}/${p.total}`, "round", "done", null, [],
         );
         root.children.push(currentRound);
         break;
@@ -1148,7 +1148,7 @@ function buildOrgTree(events, runIndex, participants, messages) {
           "turn",
           "active",
           p.speaker,
-          [`Início do turno · rodada ${p.round || "?"}`],
+          [`Turn start · round ${p.round || "?"}`],
         );
         parent.children.push(currentTurn);
         pendingTool = null;
@@ -1159,7 +1159,7 @@ function buildOrgTree(events, runIndex, participants, messages) {
         let turn = currentTurn;
         if (key === "synth") {
           if (!synthTurn) {
-            synthTurn = makeOrgNode("synth-turn", "Síntese", "turn", "active", "synth", []);
+            synthTurn = makeOrgNode("synth-turn", "Synthesis", "turn", "active", "synth", []);
             root.children.push(synthTurn);
           }
           turn = synthTurn;
@@ -1180,28 +1180,28 @@ function buildOrgTree(events, runIndex, participants, messages) {
           } else if (p.state === "done") {
             turn.status = "done";
             turn.children.push(makeOrgNode(
-              `done-${ev.seq}`, "Mensagem enviada", "step", "done", key, [],
+              `done-${ev.seq}`, "Message sent", "step", "done", key, [],
             ));
           } else if (p.state === "error") {
             turn.status = "error";
             turn.children.push(makeOrgNode(
-              `err-${ev.seq}`, "Erro no turno", "step", "error", key, [],
+              `err-${ev.seq}`, "Turn error", "step", "error", key, [],
             ));
           }
         } else if (p.kind === "tool_call") {
           pendingTool = makeOrgNode(
-            `tool-${ev.seq}`, p.tool || "ferramenta", "tool", "active", key,
-            [`Chamada: ${p.tool}`, `Args: ${JSON.stringify(p.args || {})}`],
+            `tool-${ev.seq}`, p.tool || "tool", "tool", "active", key,
+            [`Call: ${p.tool}`, `Args: ${JSON.stringify(p.args || {})}`],
           );
           turn.children.push(pendingTool);
         } else if (p.kind === "tool_result") {
           if (pendingTool) {
             pendingTool.status = "done";
-            pendingTool.logs.push(`Resultado: ${(p.preview || "").slice(0, 500)}`);
+            pendingTool.logs.push(`Result: ${(p.preview || "").slice(0, 500)}`);
             pendingTool = null;
           } else {
             turn.children.push(makeOrgNode(
-              `res-${ev.seq}`, `↳ ${p.tool || "resultado"}`, "tool", "done", key,
+              `res-${ev.seq}`, `↳ ${p.tool || "result"}`, "tool", "done", key,
               [(p.preview || "").slice(0, 500)],
             ));
           }
@@ -1226,7 +1226,7 @@ function buildOrgTree(events, runIndex, participants, messages) {
   }
 
   if (systemLogs.length) {
-    const logNode = makeOrgNode("system-logs", "Log do sistema", "logs", "done", null, systemLogs);
+    const logNode = makeOrgNode("system-logs", "System log", "logs", "done", null, systemLogs);
     root.children.push(logNode);
   }
 
@@ -1235,15 +1235,15 @@ function buildOrgTree(events, runIndex, participants, messages) {
 }
 
 function buildOrgTreeFromMessages(messages, runIndex) {
-  const root = makeOrgNode("run", `Execução ${runIndex}`, "run", "done", null, [
-    "Trace detalhado indisponível — reconstruído a partir das mensagens.",
+  const root = makeOrgNode("run", `Run ${runIndex}`, "run", "done", null, [
+    "Detailed trace unavailable — reconstructed from messages.",
   ]);
   const byRound = {};
   for (const m of messages || []) {
     const rnd = m.round || 0;
     if (!byRound[rnd]) {
       byRound[rnd] = makeOrgNode(
-        `round-${rnd}`, rnd ? `Rodada ${rnd}` : "Outros", "round", "done", null, [],
+        `round-${rnd}`, rnd ? `Round ${rnd}` : "Other", "round", "done", null, [],
       );
       root.children.push(byRound[rnd]);
     }
@@ -1462,7 +1462,7 @@ function renderOrgLogPanel(node) {
   const lines = (node.logs || []).map((l) => `<div class="log-line">${esc(l)}</div>`).join("");
   content.innerHTML =
     `<div class="log-h">${esc(node.label)} <span style="color:var(--muted)">(${esc(node.kind)})</span></div>` +
-    (lines || `<div class="log-line" style="color:var(--muted)">Sem logs adicionais.</div>`);
+    (lines || `<div class="log-line" style="color:var(--muted)">No additional logs.</div>`);
 }
 
 function refreshOrgView() {
@@ -1474,7 +1474,7 @@ function refreshOrgView() {
     for (const r of runs) {
       const opt = document.createElement("option");
       opt.value = r;
-      opt.textContent = `Execução ${r}`;
+      opt.textContent = `Run ${r}`;
       if (r === state.orgRunIndex) opt.selected = true;
       sel.appendChild(opt);
     }
@@ -1489,7 +1489,7 @@ function refreshOrgView() {
   const hasDetail = state.trace.some((e) => e.run_index === state.orgRunIndex);
   if (!hasDetail && state.participants.length) {
     warn.style.display = "block";
-    warn.textContent = "Trace detalhado indisponível para esta execução — organograma reconstruído a partir das mensagens.";
+    warn.textContent = "Detailed trace unavailable for this run — org chart reconstructed from messages.";
   } else {
     warn.style.display = "none";
   }
@@ -1565,7 +1565,7 @@ function wireOrgCanvas() {
 
 async function openOrgModal(cid) {
   const target = cid || state.cid;
-  if (!target) { alert("Selecione uma conversa primeiro."); return; }
+  if (!target) { alert("Open a conversation first."); return; }
   if (target !== state.cid) await openConversation(target);
   try {
     const full = await api(`/api/conversations/${state.cid}`);
@@ -1576,7 +1576,7 @@ async function openOrgModal(cid) {
     try {
       const data = await api(`/api/conversations/${state.cid}/trace`);
       state.trace = data.trace || state.trace;
-    } catch (e2) { /* mantém estado atual */ }
+    } catch (e2) { /* keep current state */ }
   }
   const runs = orgRunsFromTrace(state.trace);
   state.orgRunIndex = runs.length ? runs[runs.length - 1] : 1;

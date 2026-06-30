@@ -1,4 +1,4 @@
-"""Importação de agentes/personas a partir de URLs (GitHub, web)."""
+"""Import agents/personas from URLs (GitHub, web)."""
 import re
 from urllib.parse import urlparse, unquote
 
@@ -10,7 +10,7 @@ _MAX_CHARS = 8000
 
 
 def _github_blob_to_raw(url: str) -> str:
-    """Converte github.com/.../blob/... em raw.githubusercontent.com."""
+    """Convert github.com/.../blob/... to raw.githubusercontent.com."""
     m = re.match(
         r"https?://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+?)(?:\?.*)?$",
         url,
@@ -39,7 +39,7 @@ def _guess_name(url: str, text: str) -> str:
         m = re.match(r"^name\s*[:=]\s*(.+)$", line, re.I)
         if m:
             return m.group(1).strip()[:120]
-    return "Agente importado"
+    return "Imported agent"
 
 
 def _extract_text(content: str, content_type: str) -> str:
@@ -56,13 +56,13 @@ def _extract_text(content: str, content_type: str) -> str:
 
 
 async def import_agent_from_url(url: str) -> dict:
-    """Baixa conteúdo da URL e retorna name + description para revisão."""
+    """Download URL content and return name + description for review."""
     url = (url or "").strip()
     if not url:
-        raise ValueError("URL vazia.")
+        raise ValueError("Empty URL.")
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise ValueError("URL deve usar http ou https.")
+        raise ValueError("URL must use http or https.")
 
     fetch_url = _github_blob_to_raw(url)
     async with httpx.AsyncClient(
@@ -73,7 +73,7 @@ async def import_agent_from_url(url: str) -> dict:
 
     text = _extract_text(resp.text, resp.headers.get("content-type", ""))
     if not text:
-        raise ValueError("Não foi possível extrair texto da URL.")
+        raise ValueError("Could not extract text from URL.")
 
     return {
         "name": _guess_name(fetch_url, text),

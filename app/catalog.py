@@ -1,11 +1,10 @@
-"""Catálogo de provedores/modelos e estimativa de custo.
+"""Provider/model catalog and cost estimation.
 
-ATENÇÃO: nomes de modelo e preços MUDAM com frequência. Os valores aqui são
-pontos de partida — confirme os atuais e edite. Na UI você também pode digitar
-um modelo customizado.
+NOTE: model names and prices change frequently. Values here are starting points —
+confirm current ones and edit. The UI also lets you type a custom model.
 """
 
-# Modelos oferecidos por provedor (editável; a UI permite digitar um custom).
+# Models offered per provider (editable; UI allows custom input).
 PROVIDER_CATALOG = {
     "claude": {
         "label": "Claude",
@@ -25,8 +24,8 @@ PROVIDER_CATALOG = {
     },
 }
 
-# Preço estimado em USD por 1 milhão de tokens: (entrada, saída).
-# EDITE com os valores atuais de cada provedor.
+# Estimated price in USD per 1 million tokens: (input, output).
+# EDIT with current values from each provider.
 PRICING = {
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-opus-4-1": (15.0, 75.0),

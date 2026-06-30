@@ -1,15 +1,15 @@
-"""Gera título resumido via qualquer agente disponível."""
+"""Generate a short title via any available agent."""
 import re
 
 from app.catalog import PROVIDER_CATALOG
 from app.providers import available_providers, make_provider
 
-PLACEHOLDER = "Uma nova conversa"
+PLACEHOLDER = "A new conversation"
 MAX_LEN = 80
 
 _SYSTEM = (
-    "Você resume objetivos em títulos curtos. "
-    "Responda com UMA única linha (máximo 80 caracteres), sem aspas, sem markdown, sem explicação."
+    "You summarize goals into short titles. "
+    "Reply with ONE single line (max 80 characters), no quotes, no markdown, no explanation."
 )
 
 
@@ -29,12 +29,12 @@ def _clean_title(text: str) -> str:
 
 
 async def generate_title(goal: str, participants: list[dict] | None = None) -> str:
-    """Tenta gerar título com o primeiro agente disponível; senão mantém placeholder."""
+    """Try to generate a title with the first available agent; otherwise keep placeholder."""
     goal = (goal or "").strip()
     if not goal:
         return PLACEHOLDER
 
-    user = f"Objetivo:\n{goal}\n\nTítulo:"
+    user = f"Goal:\n{goal}\n\nTitle:"
     candidates = participants or [{"pkey": k, "model": _default_model(k)} for k in available_providers()]
 
     for item in candidates:
@@ -48,7 +48,7 @@ async def generate_title(goal: str, participants: list[dict] | None = None) -> s
         try:
             res = await prov.run(_SYSTEM, user, [], None)
             title = _clean_title(res.text)
-            if title and len(title) > 3 and not title.lower().startswith("[erro"):
+            if title and len(title) > 3 and not title.lower().startswith(("[error", "[cli error")):
                 return title
         except Exception:
             continue
