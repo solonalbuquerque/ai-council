@@ -1,5 +1,7 @@
 # AI Council
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Put Claude, ChatGPT, Gemini, and DeepSeek in the same room — and watch them debate your problem in real time.**
 
 AI Council is a self-hosted **multi-agent control room**: several frontier models argue, refine ideas, call tools, and deliver a synthesis — while you observe live terminals, track costs per AI, and jump into the conversation whenever you want. No accounts, no cloud lock-in. Your machine, your keys, your data.
@@ -173,6 +175,10 @@ DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/aicouncil uvi
   finishes first (tools have timeouts).
 - **CLI mode** (via `npm run dev`) does not use web/Apify/MCP tools for AIs —
   text only. For tools, use API keys or `npm run docker:up`.
+
+## License
+
+Copyright © 2026 Sólon Abuquerque. Released under the [MIT License](LICENSE).
 
 ---
 

@@ -1,6 +1,7 @@
 {
   "name": "ai-council",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "python scripts/dev.py",
     "dev:stop": "python scripts/kill_servers.py",
