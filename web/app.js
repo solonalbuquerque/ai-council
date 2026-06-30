@@ -112,6 +112,49 @@ async function init() {
   await loadAgents();
   await loadConversations();
   wireUI();
+  window.addEventListener("popstate", onPopState);
+  const cid = parseConversationFromUrl();
+  if (cid) await openConversation(cid, { skipUrl: true });
+}
+
+function conversationUrl(cid) {
+  return `/c/${cid}`;
+}
+
+function parseConversationFromUrl() {
+  const m = location.pathname.match(/^\/c\/([a-f0-9]{32})$/i);
+  return m ? m[1] : null;
+}
+
+function setConversationUrl(cid, replace = false) {
+  const path = cid ? conversationUrl(cid) : "/";
+  const st = { cid: cid || null };
+  if (replace) history.replaceState(st, "", path);
+  else history.pushState(st, "", path);
+}
+
+function onPopState(ev) {
+  const cid = parseConversationFromUrl() || ev.state?.cid;
+  if (cid) openConversation(cid, { skipUrl: true });
+  else closeConversationView();
+}
+
+function closeConversationView() {
+  state.cid = null;
+  if (state.ws) { try { state.ws.close(); } catch (e) {} state.ws = null; }
+  const cv = $("conv-view");
+  const ph = $("placeholder");
+  if (cv) cv.style.display = "none";
+  if (ph) ph.style.display = "";
+  loadConversations();
+}
+
+function scrollTranscriptToBottom() {
+  const t = $("transcript");
+  if (!t) return;
+  requestAnimationFrame(() => {
+    t.scrollTop = t.scrollHeight;
+  });
 }
 
 function wireUI() {
@@ -179,11 +222,12 @@ async function loadConversations() {
 }
 
 /* ---------------- open conversation ---------------- */
-async function openConversation(cid) {
+async function openConversation(cid, opts = {}) {
   state.cid = cid;
   state.seenMsgIds = new Set();
   $("placeholder").style.display = "none";
   $("conv-view").style.display = "flex";
+  if (!opts.skipUrl) setConversationUrl(cid, !!opts.replaceUrl);
   await loadConversations();
   connectWS(cid);
 }
@@ -202,12 +246,54 @@ function connectWS(cid) {
 function send(obj) {
   if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify(obj));
 }
+
+const HUMAN_COMMANDS = {
+  start: { action: "start" },
+  stop: { action: "stop" },
+};
+
+function parseHumanCommand(text) {
+  if (!text.startsWith("/")) return null;
+  const name = text.slice(1).trim().split(/\s+/)[0]?.toLowerCase();
+  return name || null;
+}
+
+function handleHumanCommand(name) {
+  if (name === "start") {
+    if (state.status === "running") {
+      setHumanFeedback("Execução em andamento — use /stop para interromper.", "warn");
+      return;
+    }
+    if (state.status === "paused") {
+      setHumanFeedback("Execução pausada — use Retomar ou /stop.", "warn");
+      return;
+    }
+    setHumanFeedback("Iniciando debate…", "processing");
+    send({ action: "start" });
+    return;
+  }
+  if (name === "stop") {
+    if (state.status !== "running" && state.status !== "paused") {
+      setHumanFeedback("Nenhuma execução ativa para parar.", "warn");
+      return;
+    }
+    setHumanFeedback("Parando execução…", "processing");
+    send({ action: "stop" });
+    return;
+  }
+  setHumanFeedback("Comando desconhecido. Use /start ou /stop.", "warn");
+}
+
 function sendHuman() {
   const inp = $("human-text"); const text = inp.value.trim();
   if (!text) return;
+  inp.value = "";
+  if (text.startsWith("/")) {
+    handleHumanCommand(parseHumanCommand(text));
+    return;
+  }
   setHumanFeedback("Enviando…", "processing");
   send({ action: "human", text });
-  inp.value = "";
 }
 
 function setHumanFeedback(text, kind) {
@@ -219,19 +305,23 @@ function setHumanFeedback(text, kind) {
 }
 
 function updateHumanInputHint() {
-  if (state.humanFeedback.kind !== "idle") return;
+  if (state.humanFeedback.kind !== "idle" &&
+      !["running", "paused", "done", "stopped", "idle", "error"].includes(state.status)) {
+    return;
+  }
+  const cmdHint = "Comandos: /start (iniciar debate), /stop (parar).";
   let hint = "";
   let kind = "idle";
   if (state.status === "running") {
-    hint = "Durante a execução, as IAs lerão sua mensagem no próximo turno.";
+    hint = cmdHint + " Durante a execução, as IAs lerão sua mensagem no próximo turno.";
     kind = "queued";
   } else if (state.status === "paused") {
-    hint = "Execução pausada — mensagem ficará na fila até retomar.";
+    hint = cmdHint + " Execução pausada — mensagem ficará na fila até retomar.";
     kind = "warn";
   } else if (state.hasPriorExecution && (state.status === "done" || state.status === "stopped")) {
-    hint = "Após o debate, a Síntese (ou última IA) responde diretamente ao humano.";
-  } else if (state.status === "idle") {
-    hint = "Sua mensagem entrará na conversa ao clicar Iniciar.";
+    hint = cmdHint + " Após o debate, a Síntese (ou última IA) responde ao humano. Use /start para rodar de novo.";
+  } else {
+    hint = cmdHint + " Ou escreva uma mensagem para as IAs.";
   }
   setHumanFeedback(hint, kind);
 }
@@ -305,6 +395,7 @@ function renderSnapshot(c) {
   state.hasPriorExecution = computeHasPriorExecution(c);
   $("cv-title").textContent = c.title || "—";
   const g = $("cv-goal"); g.textContent = c.goal || ""; g.title = c.goal || "";
+  renderConvBrief(c.config);
 
   // badges
   const b = $("cv-badges"); b.innerHTML = "";
@@ -326,11 +417,38 @@ function renderSnapshot(c) {
   const msgs = c.messages || [];
   if (!msgs.length) t.appendChild(el("div", "t-empty", "A transcrição aparece aqui conforme as IAs falam."));
   else for (const m of msgs) appendMessage(m, true);
+  scrollTranscriptToBottom();
 
   setStatus(c.status);
   state.humanFeedback = { text: "", kind: "idle" };
   updateHumanInputHint();
   if (state.orgModalOpen) refreshOrgView();
+}
+
+function renderConvBrief(config) {
+  const box = $("conv-brief");
+  if (!box) return;
+  const stop = (config?.stop_when || "").trim();
+  const deliver = (config?.deliverable || "").trim();
+  if (!stop && !deliver) {
+    box.style.display = "none";
+    box.innerHTML = "";
+    return;
+  }
+  box.style.display = "grid";
+  box.innerHTML = "";
+  if (stop) {
+    const item = el("div", "brief-item");
+    item.appendChild(el("div", "brief-k", "Encerrar quando"));
+    item.appendChild(el("div", "brief-v", esc(stop)));
+    box.appendChild(item);
+  }
+  if (deliver) {
+    const item = el("div", "brief-item");
+    item.appendChild(el("div", "brief-k", "Produzir ao final"));
+    item.appendChild(el("div", "brief-v", esc(deliver)));
+    box.appendChild(item);
+  }
 }
 
 /* ---------------- panes / terminals ---------------- */
@@ -469,6 +587,7 @@ function setStatus(stateStr) {
   $("btn-pause").disabled = !(running || paused);
   $("btn-pause").innerHTML = paused ? "▶ Retomar" : "⏸ Pausar";
   $("btn-stop").disabled = !(running || paused);
+  state.humanFeedback = { text: "", kind: "idle" };
   updateHumanInputHint();
 }
 function updateBadge(which, html) {
@@ -796,6 +915,8 @@ async function createConversation() {
 
   const goal = $("f-goal").value.trim();
   if (!goal) { alert("Informe o objetivo da conversa."); return; }
+  const stopWhen = $("f-stop-when").value.trim();
+  const deliverable = $("f-deliverable").value.trim();
 
   const agentIds = agentParts.map((p) => p.agent_id).filter(Boolean);
   const payload = {
@@ -810,6 +931,8 @@ async function createConversation() {
       mcp: $("f-mcp").checked,
       synthesize: $("f-synth").checked,
       agent_ids: agentIds,
+      stop_when: stopWhen,
+      deliverable,
     },
     participants: participants.map(({ agent_id, ...rest }) => rest),
   };
@@ -818,7 +941,7 @@ async function createConversation() {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
     closeModal();
-    await openConversation(id);
+    await openConversation(id, { replaceUrl: true });
     generateTitle(id, goal, participants);
   } catch (e) {
     alert("Erro ao criar conversa: " + e.message);
@@ -872,6 +995,8 @@ function buildOrgTree(events, runIndex, participants, messages) {
           `Modo: ${p.mode === "parallel" ? "Paralelo" : "Sequencial"}`,
           `Rodadas: ${p.max_rounds || "?"}`,
         ];
+        if (p.stop_when) root.logs.push(`Encerrar quando: ${p.stop_when}`);
+        if (p.deliverable) root.logs.push(`Produzir ao final: ${p.deliverable}`);
         root.status = "active";
         break;
       case "round":

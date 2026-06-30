@@ -15,7 +15,20 @@ FOLLOWUP_SYSTEM = (
 )
 
 
-def build_prompt(goal, transcript, label, others, can_interact, persona):
+def build_goal_context(conv: dict) -> str:
+    cfg = conv.get("config") or {}
+    parts = [f"OBJETIVO:\n{conv.get('goal') or ''}"]
+    stop = (cfg.get("stop_when") or "").strip()
+    deliver = (cfg.get("deliverable") or "").strip()
+    if stop:
+        parts.append(f"ENCERRAR QUANDO:\n{stop}")
+    if deliver:
+        parts.append(f"PRODUZIR AO FINAL:\n{deliver}")
+    return "\n\n".join(parts)
+
+
+def build_prompt(conv, transcript, label, others, can_interact, persona):
+    cfg = conv.get("config") or {}
     interact = (
         "Você PODE fazer perguntas aos outros participantes e ao humano, e responder "
         "perguntas dirigidas a você."
@@ -23,15 +36,22 @@ def build_prompt(goal, transcript, label, others, can_interact, persona):
         else "Você NÃO deve fazer perguntas; apresente apenas sua análise e contribuição."
     )
     persona_line = f"Persona: {persona.strip()}\n" if persona and persona.strip() else ""
+    stop_hint = ""
+    if (cfg.get("stop_when") or "").strip():
+        stop_hint = (
+            " Avalie se os critérios de ENCERRAR QUANDO já foram atingidos; "
+            "se sim, indique explicitamente que o debate pode ser encerrado."
+        )
     system = (
         f"Você é {label}, colaborando com {others} para atingir o OBJETIVO abaixo.\n"
         f"{persona_line}{interact}\n"
         "Seja concreto e conciso; agregue valor, não concorde por concordar. "
         "Se precisar de dados externos, use as ferramentas disponíveis. "
-        "Responda no idioma do objetivo."
+        f"Responda no idioma do objetivo.{stop_hint}"
     )
     convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript) or "(início — ainda sem mensagens)"
-    user = f"OBJETIVO:\n{goal}\n\nCONVERSA ATÉ AQUI:\n{convo}\n\nSua vez, {label}."
+    goal_ctx = build_goal_context(conv)
+    user = f"{goal_ctx}\n\nCONVERSA ATÉ AQUI:\n{convo}\n\nSua vez, {label}."
     return system, user
 
 
@@ -115,10 +135,10 @@ class Runner:
         })
 
     # ---- um turno de uma IA ----
-    async def _turn(self, p, prov, goal, transcript, names, tools, rnd):
+    async def _turn(self, p, prov, conv, transcript, names, tools, rnd):
         key, label = p["pkey"], p["label"]
         others = ", ".join(n for n in names if n != label) or "ninguém"
-        system, user = build_prompt(goal, transcript, label, others, p["can_interact"], p["persona"])
+        system, user = build_prompt(conv, transcript, label, others, p["can_interact"], p["persona"])
 
         await self.emit("turn_start", {"speaker": key, "label": label, "round": rnd})
         await self.emit("agent_step",
@@ -154,7 +174,7 @@ class Runner:
 
         convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript)
         user = (
-            f"OBJETIVO:\n{conv['goal']}\n\nCONVERSA:\n{convo}\n\n"
+            f"{build_goal_context(conv)}\n\nCONVERSA:\n{convo}\n\n"
             f"Responda ao humano como {responder_label}."
         )
 
@@ -204,6 +224,8 @@ class Runner:
                 "goal": conv["goal"],
                 "mode": conv["mode"],
                 "max_rounds": conv["max_rounds"],
+                "stop_when": (conv.get("config") or {}).get("stop_when") or "",
+                "deliverable": (conv.get("config") or {}).get("deliverable") or "",
             })
             parts = [p for p in conv["participants"] if p["active"]]
             providers = {}
@@ -223,6 +245,7 @@ class Runner:
             tools = build_tools(conv["config"], self.mcp_tools)
             names = [p["label"] for p in parts]
             transcript = _build_transcript(conv["messages"])
+            goal_ctx = build_goal_context(conv)
 
             await store.set_status(self.conv_id, "running")
             await self.emit("status", {"state": "running"})
@@ -239,7 +262,7 @@ class Runner:
 
                     async def do(p, snap=snapshot, r=rnd):
                         return p, await self._turn(
-                            p, providers[p["pkey"]], conv["goal"], snap, names, tools, r)
+                            p, providers[p["pkey"]], conv, snap, names, tools, r)
 
                     if not await self._checkpoint():
                         break
@@ -257,7 +280,7 @@ class Runner:
                             break
                         await self._drain_human(transcript)
                         res = await self._turn(
-                            p, providers[p["pkey"]], conv["goal"], transcript, names, tools, rnd)
+                            p, providers[p["pkey"]], conv, transcript, names, tools, rnd)
                         if res is not None:
                             transcript.append((p["label"], res.text))
 
@@ -272,13 +295,16 @@ class Runner:
                 prov = providers[synth_p["pkey"]]
                 await self.emit("agent_step",
                                 {"participant": "synth", "kind": "status", "state": "thinking"})
+                deliver = ((conv.get("config") or {}).get("deliverable") or "").strip()
+                deliver_hint = f" Entregue exatamente o formato pedido em PRODUZIR AO FINAL: {deliver}." if deliver else ""
                 system = (
                     "Você é o sintetizador. Leia a conversa e produza UMA resposta final, "
                     "clara e acionável, atingindo o objetivo. Integre os melhores pontos e "
                     "liste questões em aberto. Responda no idioma do objetivo."
+                    + deliver_hint
                 )
                 convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript)
-                user = f"OBJETIVO:\n{conv['goal']}\n\nCONVERSA:\n{convo}\n\nProduza a resposta final."
+                user = f"{goal_ctx}\n\nCONVERSA:\n{convo}\n\nProduza a resposta final."
 
                 async def step(kind, payload):
                     await self.emit("agent_step", {"participant": "synth", "kind": kind, **payload})

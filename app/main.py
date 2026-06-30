@@ -323,6 +323,12 @@ async def index():
     return FileResponse(os.path.join(WEB, "index.html"))
 
 
+@app.get("/c/{cid}")
+async def conversation_page(cid: str):
+    """Deep link para abrir uma conversa diretamente."""
+    return FileResponse(os.path.join(WEB, "index.html"))
+
+
 @app.get("/settings")
 async def settings_page():
     return FileResponse(os.path.join(WEB, "settings.html"))

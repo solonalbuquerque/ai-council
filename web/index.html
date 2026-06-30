@@ -54,6 +54,8 @@
           </div>
         </div>
 
+        <div class="conv-brief" id="conv-brief" style="display:none;"></div>
+
         <div class="scoreboard" id="scoreboard"></div>
 
         <div class="split">
@@ -63,7 +65,7 @@
               <div class="t-empty">A transcrição aparece aqui conforme as IAs falam.</div>
             </div>
             <div class="human-input">
-              <input id="human-text" placeholder="Entrar na conversa como humano…" autocomplete="off" />
+              <input id="human-text" placeholder="Mensagem, /start ou /stop…" autocomplete="off" />
               <button id="human-send">Enviar</button>
             </div>
             <div class="human-status" id="human-status"></div>
@@ -89,6 +91,20 @@
     </div>
 
     <div class="row"><label>Objetivo</label><textarea id="f-goal" placeholder="O que essa conversa precisa resolver? Um título será gerado automaticamente por IA."></textarea></div>
+
+    <div class="row" style="align-items:start;"><label>Encerrar quando</label>
+      <div>
+        <textarea id="f-stop-when" placeholder="Ex.: quando identificarmos as 3 melhores opções, ou quando houver consenso sobre o risco principal…"></textarea>
+        <div class="note">Critério para considerar o debate concluído (opcional).</div>
+      </div>
+    </div>
+
+    <div class="row" style="align-items:start;"><label>Produzir ao final</label>
+      <div>
+        <textarea id="f-deliverable" placeholder="Ex.: relatório executivo, resumo com prós/contras, lista de ações priorizadas…"></textarea>
+        <div class="note">O que a síntese final deve entregar (opcional).</div>
+      </div>
+    </div>
 
     <div class="row">
       <label>Limites</label>
