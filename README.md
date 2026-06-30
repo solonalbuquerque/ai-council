@@ -1,8 +1,62 @@
-# AI Council — v2
+# AI Council
 
-Platform where multiple AIs (Claude, ChatGPT, Gemini, DeepSeek) **debate in real time**
-to solve a problem, with tools (web, Apify, MCP), per-AI cost scoreboard, live terminals
-showing each one at work, and human participation in chat. Everything persisted in PostgreSQL. No login.
+**Put Claude, ChatGPT, Gemini, and DeepSeek in the same room — and watch them debate your problem in real time.**
+
+AI Council is a self-hosted **multi-agent control room**: several frontier models argue, refine ideas, call tools, and deliver a synthesis — while you observe live terminals, track costs per AI, and jump into the conversation whenever you want. No accounts, no cloud lock-in. Your machine, your keys, your data.
+
+> **Why teams use it:** get diverse perspectives without copy-pasting between tabs; see disagreements surface before you commit to a decision; keep a full audit trail in PostgreSQL.
+
+---
+
+## How it works
+
+```mermaid
+flowchart TB
+    subgraph YOU["👤 You"]
+        A[Define goal, rounds & budget]
+        B[Choose AIs, models & personas]
+        C[Watch live — or join the chat]
+    end
+
+    subgraph COUNCIL["🧠 AI Council"]
+        D[Orchestrator runs debate rounds]
+        E1[Claude]
+        E2[ChatGPT]
+        E3[Gemini]
+        E4[DeepSeek]
+        D --> E1 & E2 & E3 & E4
+    end
+
+    subgraph TOOLS["🔧 Tools optional"]
+        T1[Web search & fetch]
+        T2[Apify actors]
+        T3[MCP servers]
+    end
+
+    subgraph OUTPUT["📊 Results"]
+        F[Live scoreboard — tokens & cost]
+        G[Final synthesis]
+        H[(PostgreSQL — full history)]
+    end
+
+    A --> D
+    B --> D
+    E1 & E2 & E3 & E4 <--> T1 & T2 & T3
+    D --> F
+    D --> G
+    D --> H
+    C -.->|Pause / Resume / Human message| D
+    F & G --> C
+```
+
+**In plain terms:**
+
+1. **You set the mission** — goal, number of rounds, token budget, sequential or parallel mode, which AIs participate, and optional personas.
+2. **The council debates** — each AI speaks in turns (or all at once in parallel mode), can use web/Apify/MCP tools, and builds on what others said.
+3. **You stay in control** — pause, resume, stop, or send a message as a human; your input enters the next AI turn.
+4. **You get answers and accountability** — a final synthesis, per-AI cost scoreboard, live agent terminals, and everything saved to PostgreSQL.
+
+---
 
 ## Run (recommended — local CLIs)
 
@@ -36,14 +90,7 @@ Open **http://localhost:8000** (or **8002** if 8000 is busy — the script warns
 
 Or use API keys in `.env` as fallback (uncheck "Prefer local CLIs" in /settings).
 
-## How it works
-
-1. **+ New conversation**: set goal, number of rounds, token budget,
-   mode (sequential or parallel), tools, and which AIs participate (with model
-   and persona for each).
-2. **Start**: AIs speak in rounds. At the end, one produces a **synthesis**.
-3. You can **Pause/Resume/Stop** and **join the chat as a human** at any
-   time — your message enters the conversation the next time an AI speaks.
+## Features in detail
 
 ### Modes
 - **Sequential** ("Wait for each other" checked): each AI sees what the
@@ -126,3 +173,15 @@ DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/aicouncil uvi
   finishes first (tools have timeouts).
 - **CLI mode** (via `npm run dev`) does not use web/Apify/MCP tools for AIs —
   text only. For tools, use API keys or `npm run docker:up`.
+
+---
+
+## Keywords
+
+Search terms people use to find projects like this:
+
+**English:** multi-agent AI, AI debate, AI council, LLM orchestration, multi-model chat, Claude ChatGPT Gemini together, AI collaboration tool, self-hosted AI platform, real-time AI dashboard, AI cost tracker, token usage scoreboard, human-in-the-loop AI, AI synthesis, parallel AI agents, sequential AI debate, MCP tools for LLMs, FastAPI WebSocket AI, PostgreSQL AI conversations, local AI CLI, OpenAI Anthropic Google DeepSeek
+
+**Português:** debate entre IAs, conselho de inteligência artificial, múltiplos agentes IA, orquestração de LLM, Claude ChatGPT Gemini juntos, ferramenta de colaboração IA, plataforma IA self-hosted, painel IA em tempo real, controle de custo IA, scoreboard de tokens, humano no loop, síntese com IA, agentes IA paralelos, debate sequencial IA, ferramentas MCP para LLM, conversas IA PostgreSQL, CLI local IA
+
+**Español:** debate entre IAs, consejo de inteligencia artificial, múltiples agentes IA, orquestación de LLM, Claude ChatGPT Gemini juntos, herramienta de colaboración IA, plataforma IA self-hosted, panel IA en tiempo real, control de costos IA, marcador de tokens, humano en el bucle, síntesis con IA, agentes IA en paralelo, debate secuencial IA, herramientas MCP para LLM, conversaciones IA PostgreSQL, CLI local IA
