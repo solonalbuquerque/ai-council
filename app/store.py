@@ -94,8 +94,19 @@ async def create_conversation(payload: dict) -> str:
             mode=payload.get("mode") or "sequential",
             max_rounds=int(payload.get("max_rounds") or 3),
             token_budget=int(payload.get("token_budget") or 0),
-            config=payload.get("config")
-            or {"web": True, "apify": False, "mcp": False, "synthesize": True},
+            config=payload.get("config") or {
+                "web": True,
+                "apify": False,
+                "mcp": False,
+                "synthesize": True,
+                "compress_context": True,
+                "context_max_chars": 12000,
+                "context_keep_last_round": True,
+                "max_words_per_turn": 400,
+                "max_output_tokens": 2000,
+                "tool_result_max_chars": 4000,
+                "web_fetch_max_chars": 3000,
+            },
         )
         s.add(conv)
         await s.flush()

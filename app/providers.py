@@ -14,6 +14,8 @@ from app.catalog import estimate
 from app.cli_runner import cli_available, run_cli
 
 MAX_TOOL_ITERS = 6
+DEFAULT_MAX_OUTPUT_TOKENS = 2000
+DEFAULT_TOOL_RESULT_CHARS = 4000
 
 
 @dataclass
@@ -31,7 +33,15 @@ class Provider:
         self.label = label
         self.model = model
 
-    async def run(self, system, user_prompt, tools, emit) -> RunResult:
+    async def run(
+        self,
+        system,
+        user_prompt,
+        tools,
+        emit,
+        max_output_tokens: int | None = None,
+        tool_result_max_chars: int | None = None,
+    ) -> RunResult:
         raise NotImplementedError
 
 
@@ -47,7 +57,17 @@ class OpenAICompatProvider(Provider):
         super().__init__(pkey, label, model)
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
-    async def run(self, system, user_prompt, tools, emit) -> RunResult:
+    async def run(
+        self,
+        system,
+        user_prompt,
+        tools,
+        emit,
+        max_output_tokens: int | None = None,
+        tool_result_max_chars: int | None = None,
+    ) -> RunResult:
+        max_out = max_output_tokens or DEFAULT_MAX_OUTPUT_TOKENS
+        tool_max = tool_result_max_chars or DEFAULT_TOOL_RESULT_CHARS
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user_prompt},
@@ -61,7 +81,12 @@ class OpenAICompatProvider(Provider):
         res = RunResult()
 
         for _ in range(MAX_TOOL_ITERS):
-            kwargs = {"model": self.model, "messages": messages, "temperature": 0.7}
+            kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": max_out,
+            }
             if oai_tools:
                 kwargs["tools"] = oai_tools
             resp = await self.client.chat.completions.create(**kwargs)
@@ -93,7 +118,7 @@ class OpenAICompatProvider(Provider):
                         out = f"Erro na ferramenta {name}: {e}"
                     await _step(emit, "tool_result", {"tool": name, "preview": out[:400]})
                     messages.append({
-                        "role": "tool", "tool_call_id": tc.id, "content": out[:8000]})
+                        "role": "tool", "tool_call_id": tc.id, "content": out[:tool_max]})
                 continue
 
             res.text = msg.content or ""
@@ -108,7 +133,17 @@ class AnthropicProvider(Provider):
         super().__init__(pkey, label, model)
         self.client = AsyncAnthropic(api_key=api_key)
 
-    async def run(self, system, user_prompt, tools, emit) -> RunResult:
+    async def run(
+        self,
+        system,
+        user_prompt,
+        tools,
+        emit,
+        max_output_tokens: int | None = None,
+        tool_result_max_chars: int | None = None,
+    ) -> RunResult:
+        max_out = max_output_tokens or DEFAULT_MAX_OUTPUT_TOKENS
+        tool_max = tool_result_max_chars or DEFAULT_TOOL_RESULT_CHARS
         messages = [{"role": "user", "content": user_prompt}]
         anth_tools = [
             {"name": t.name, "description": t.description, "input_schema": t.parameters}
@@ -119,8 +154,10 @@ class AnthropicProvider(Provider):
 
         for _ in range(MAX_TOOL_ITERS):
             kwargs = {
-                "model": self.model, "max_tokens": 2000,
-                "system": system, "messages": messages,
+                "model": self.model,
+                "max_tokens": max_out,
+                "system": system,
+                "messages": messages,
             }
             if anth_tools:
                 kwargs["tools"] = anth_tools
@@ -145,7 +182,7 @@ class AnthropicProvider(Provider):
                             out = f"Erro na ferramenta {b.name}: {e}"
                         await _step(emit, "tool_result", {"tool": b.name, "preview": out[:400]})
                         results.append({
-                            "type": "tool_result", "tool_use_id": b.id, "content": out[:8000]})
+                            "type": "tool_result", "tool_use_id": b.id, "content": out[:tool_max]})
                 messages.append({"role": "user", "content": results})
                 continue
 
@@ -159,7 +196,15 @@ class AnthropicProvider(Provider):
 class CLIProvider(Provider):
     """Executa via CLI local (sem loop de ferramentas)."""
 
-    async def run(self, system, user_prompt, tools, emit) -> RunResult:
+    async def run(
+        self,
+        system,
+        user_prompt,
+        tools,
+        emit,
+        max_output_tokens: int | None = None,
+        tool_result_max_chars: int | None = None,
+    ) -> RunResult:
         if tools and emit:
             await _step(emit, "tool_call", {"tool": "_info", "args": {"msg": "Modo CLI: ferramentas desativadas"}})
         text, err = await run_cli(self.pkey, system, user_prompt, self.model)

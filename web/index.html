@@ -115,7 +115,7 @@
         </label>
         <label class="limit-field">
           <span class="note">Orçamento</span>
-          <input type="number" id="f-budget" value="0" min="0" step="1000" />
+          <input type="number" id="f-budget" value="500000" min="0" step="1000" />
           <span class="note">0 = ilimitado</span>
         </label>
         <div class="limit-field limit-check">
@@ -125,6 +125,26 @@
             <span>Aguardar uns aos outros (sequencial)</span>
           </label>
         </div>
+      </div>
+      <div id="budget-warn" class="warnbox" style="display:none;margin-top:8px;">
+        Orçamento ilimitado — o custo pode crescer rapidamente com muitos agentes e rodadas.
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Contexto</label>
+      <div class="limits-row">
+        <label class="limit-field limit-check">
+          <span class="note">Compressão</span>
+          <label class="chk limit-chk">
+            <input type="checkbox" id="f-compress" checked />
+            <span>Comprimir contexto entre rodadas</span>
+          </label>
+        </label>
+        <label class="limit-field">
+          <span class="note">Limite (chars)</span>
+          <input type="number" id="f-context-max" value="12000" min="2000" step="1000" />
+        </label>
       </div>
     </div>
 
@@ -148,6 +168,9 @@
     <h4>Participantes ad-hoc</h4>
     <div class="sub" style="margin-top:-8px;margin-bottom:10px;">Ou ative provedores diretamente, sem persona da biblioteca.</div>
     <div id="participants"></div>
+
+    <div id="conv-estimate" class="note" style="margin:10px 0;padding:8px 10px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line);"></div>
+    <div id="conv-warn-dupes" class="warnbox" style="display:none;margin-bottom:10px;"></div>
 
     <div class="actions">
       <button class="btn ghost" id="modal-cancel">Cancelar</button>

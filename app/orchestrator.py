@@ -3,7 +3,7 @@ import asyncio
 
 from app import store
 from app.providers import make_provider
-from app.tools import build_tools
+from app.tools import build_tools, filter_tools_for_participant
 
 # conversa_id -> Runner ativo
 RUNNERS: dict[str, "Runner"] = {}
@@ -12,6 +12,13 @@ FOLLOWUP_SYSTEM = (
     "Você continua a conversa com o humano após o debate do conselho. "
     "Responda diretamente ao que o humano disse, com base no contexto. "
     "Seja claro e conversacional. Responda no idioma do objetivo."
+)
+
+COMPRESS_SYSTEM = (
+    "Você resume debates entre várias IAs. Produza uma síntese densa e estruturada "
+    "com: consensos, divergências, fatos verificados, hipóteses em aberto e "
+    "decisões pendentes. Preserve números e nomes importantes. "
+    "Responda no idioma do objetivo."
 )
 
 
@@ -27,8 +34,40 @@ def build_goal_context(conv: dict) -> str:
     return "\n\n".join(parts)
 
 
+def _run_config(conv: dict) -> dict:
+    return conv.get("config") or {}
+
+
+def _transcript_chars(transcript: list[tuple[str, str]]) -> int:
+    return sum(len(n) + len(t) + 4 for n, t in transcript)
+
+
+def _trim_transcript(
+    transcript: list[tuple[str, str]],
+    max_chars: int,
+    keep_last_round: bool = True,
+    round_start_idx: int = 0,
+) -> list[tuple[str, str]]:
+    if _transcript_chars(transcript) <= max_chars:
+        return transcript
+
+    if keep_last_round and 0 < round_start_idx < len(transcript):
+        prefix = list(transcript[:round_start_idx])
+        suffix = list(transcript[round_start_idx:])
+        while _transcript_chars(prefix) + _transcript_chars(suffix) > max_chars and len(prefix) > 1:
+            prefix.pop(0)
+        while _transcript_chars(prefix) + _transcript_chars(suffix) > max_chars and len(suffix) > 1:
+            suffix.pop(0)
+        return prefix + suffix
+
+    trimmed = list(transcript)
+    while _transcript_chars(trimmed) > max_chars and len(trimmed) > 1:
+        trimmed.pop(0)
+    return trimmed
+
+
 def build_prompt(conv, transcript, label, others, can_interact, persona):
-    cfg = conv.get("config") or {}
+    cfg = _run_config(conv)
     interact = (
         "Você PODE fazer perguntas aos outros participantes e ao humano, e responder "
         "perguntas dirigidas a você."
@@ -42,12 +81,18 @@ def build_prompt(conv, transcript, label, others, can_interact, persona):
             " Avalie se os critérios de ENCERRAR QUANDO já foram atingidos; "
             "se sim, indique explicitamente que o debate pode ser encerrado."
         )
+    max_words = int(cfg.get("max_words_per_turn") or 0)
+    concision = (
+        f" Limite sua resposta a no máximo {max_words} palavras."
+        if max_words > 0
+        else ""
+    )
     system = (
         f"Você é {label}, colaborando com {others} para atingir o OBJETIVO abaixo.\n"
         f"{persona_line}{interact}\n"
         "Seja concreto e conciso; agregue valor, não concorde por concordar. "
         "Se precisar de dados externos, use as ferramentas disponíveis. "
-        f"Responda no idioma do objetivo.{stop_hint}"
+        f"Responda no idioma do objetivo.{stop_hint}{concision}"
     )
     convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript) or "(início — ainda sem mensagens)"
     goal_ctx = build_goal_context(conv)
@@ -71,6 +116,13 @@ def _pick_responder(conv: dict, parts: list) -> tuple[dict, str, str]:
     return p, p["pkey"], p["label"]
 
 
+def _pick_summarizer(parts: list) -> dict:
+    for p in parts:
+        if "resumidor" in (p.get("label") or "").lower():
+            return p
+    return parts[0]
+
+
 class Runner:
     def __init__(self, conv_id, emit, mcp_tools=None, run_index=1, followup=False):
         self.conv_id = conv_id
@@ -84,6 +136,139 @@ class Runner:
         self.human_q: asyncio.Queue[dict] = asyncio.Queue()
         self.total_tokens = 0
         self.pending_human_id: str | None = None
+
+    def _provider_kwargs(self, conv: dict) -> dict:
+        cfg = _run_config(conv)
+        return {
+            "max_output_tokens": int(cfg.get("max_output_tokens") or 2000),
+            "tool_result_max_chars": int(cfg.get("tool_result_max_chars") or 4000),
+        }
+
+    async def _emit_context_size(self, conv: dict, transcript: list[tuple[str, str]]):
+        cfg = _run_config(conv)
+        chars = _transcript_chars(transcript)
+        max_chars = int(cfg.get("context_max_chars") or 12000)
+        await self.emit("context_size", {
+            "chars": chars,
+            "max_chars": max_chars,
+            "estimated_tokens": chars // 4,
+            "token_budget": conv.get("token_budget") or 0,
+            "total_tokens": self.total_tokens,
+        })
+
+    async def _compress_transcript(
+        self,
+        conv: dict,
+        transcript: list[tuple[str, str]],
+        rnd: int,
+        round_start_idx: int,
+        providers: dict,
+        parts: list,
+    ) -> list[tuple[str, str]]:
+        cfg = _run_config(conv)
+        keep_last = cfg.get("context_keep_last_round", True)
+
+        if keep_last and round_start_idx > 0:
+            to_summarize = transcript[:round_start_idx]
+            keep = transcript[round_start_idx:]
+        else:
+            to_summarize = transcript
+            keep = []
+
+        if not to_summarize:
+            return transcript
+
+        synth_p = _pick_summarizer(parts)
+        prov = providers[synth_p["pkey"]]
+        convo = "\n\n".join(f"{n}:\n{t}" for n, t in to_summarize)
+        user = (
+            f"{build_goal_context(conv)}\n\nCONVERSA A RESUMIR:\n{convo}\n\n"
+            "Resuma em no máximo 800 palavras, mantendo dados concretos."
+        )
+
+        async def step(kind, payload):
+            await self.emit("agent_step", {"participant": "synth", "kind": kind, **payload})
+
+        kwargs = self._provider_kwargs(conv)
+        kwargs["max_output_tokens"] = min(kwargs["max_output_tokens"], 1500)
+        res = await prov.run(COMPRESS_SYSTEM, user, [], step, **kwargs)
+        self.total_tokens += res.input_tokens + res.output_tokens
+
+        summary_label = f"Síntese (até rodada {rnd})"
+        new_transcript = [(summary_label, res.text)] + list(keep)
+
+        m = await store.save_message(
+            self.conv_id, rnd, "synth", summary_label, "synthesis", res.text,
+            {"model": prov.model, "kind": "round_summary", "round": rnd},
+        )
+        await store.save_usage(
+            self.conv_id, "synth", rnd, res.input_tokens,
+            res.output_tokens, res.cost_usd, res.tool_calls,
+        )
+        await self.emit("message", m)
+        await self.emit("scoreboard", await store.scoreboard(self.conv_id))
+        return new_transcript
+
+    async def _maybe_compress_context(
+        self,
+        conv: dict,
+        transcript: list[tuple[str, str]],
+        rnd: int,
+        round_start_idx: int,
+        providers: dict,
+        parts: list,
+    ) -> list[tuple[str, str]]:
+        cfg = _run_config(conv)
+        max_chars = int(cfg.get("context_max_chars") or 12000)
+        before = _transcript_chars(transcript)
+
+        if before <= max_chars:
+            await self._emit_context_size(conv, transcript)
+            return transcript
+
+        if cfg.get("compress_context", True):
+            try:
+                new_transcript = await self._compress_transcript(
+                    conv, transcript, rnd, round_start_idx, providers, parts,
+                )
+                after = _transcript_chars(new_transcript)
+                if after <= max_chars or after < before:
+                    await self.emit("context_compressed", {
+                        "round": rnd,
+                        "chars_before": before,
+                        "chars_after": after,
+                        "max_chars": max_chars,
+                    })
+                    await self.emit("log", {
+                        "level": "info",
+                        "message": (
+                            f"Contexto comprimido: {before:,} → {after:,} chars "
+                            f"(rodada {rnd})"
+                        ),
+                    })
+                    await self._emit_context_size(conv, new_transcript)
+                    return new_transcript
+            except Exception as e:
+                await self.emit("log", {
+                    "level": "warn",
+                    "message": f"Compressão falhou ({e}). Usando truncamento.",
+                })
+
+        trimmed = _trim_transcript(
+            transcript, max_chars,
+            cfg.get("context_keep_last_round", True),
+            round_start_idx,
+        )
+        after = _transcript_chars(trimmed)
+        if after < before:
+            await self.emit("log", {
+                "level": "info",
+                "message": (
+                    f"Contexto truncado: {before:,} → {after:,} chars (rodada {rnd})"
+                ),
+            })
+        await self._emit_context_size(conv, trimmed)
+        return trimmed
 
     # ---- controles ----
     def pause(self):
@@ -139,6 +324,8 @@ class Runner:
         key, label = p["pkey"], p["label"]
         others = ", ".join(n for n in names if n != label) or "ninguém"
         system, user = build_prompt(conv, transcript, label, others, p["can_interact"], p["persona"])
+        participant_tools = filter_tools_for_participant(tools, _run_config(conv), key)
+        prov_kwargs = self._provider_kwargs(conv)
 
         await self.emit("turn_start", {"speaker": key, "label": label, "round": rnd})
         await self.emit("agent_step",
@@ -149,7 +336,7 @@ class Runner:
                             {"participant": key, "round": rnd, "kind": kind, **payload})
 
         try:
-            res = await prov.run(system, user, tools, step)
+            res = await prov.run(system, user, participant_tools, step, **prov_kwargs)
         except Exception as e:
             await self.emit("log", {"level": "error", "message": f"{label}: {e}"})
             await self.emit("agent_step",
@@ -165,12 +352,14 @@ class Runner:
         await self.emit("agent_step",
                         {"participant": key, "round": rnd, "kind": "status", "state": "done"})
         await self.emit("scoreboard", await store.scoreboard(self.conv_id))
+        await self._emit_context_size(conv, transcript)
         return res
 
     async def _run_followup_turn(self, conv, parts, providers, transcript, responder_label):
         resp_p, resp_key, resp_label = _pick_responder(conv, parts)
         prov = providers[resp_p["pkey"]]
         use_synth = conv["config"].get("synthesize", True)
+        prov_kwargs = self._provider_kwargs(conv)
 
         convo = "\n\n".join(f"{n}:\n{t}" for n, t in transcript)
         user = (
@@ -184,7 +373,7 @@ class Runner:
         async def step(kind, payload):
             await self.emit("agent_step", {"participant": resp_key, "kind": kind, **payload})
 
-        res = await prov.run(FOLLOWUP_SYSTEM, user, [], step)
+        res = await prov.run(FOLLOWUP_SYSTEM, user, [], step, **prov_kwargs)
         self.total_tokens += res.input_tokens + res.output_tokens
 
         if use_synth:
@@ -250,11 +439,13 @@ class Runner:
             await store.set_status(self.conv_id, "running")
             await self.emit("status", {"state": "running"})
             budget = conv["token_budget"] or 0
+            await self._emit_context_size(conv, transcript)
 
             for rnd in range(1, conv["max_rounds"] + 1):
                 if not await self._checkpoint():
                     break
                 await self.emit("round", {"round": rnd, "total": conv["max_rounds"]})
+                round_start_idx = len(transcript)
                 await self._drain_human(transcript)
 
                 if conv["mode"] == "parallel":
@@ -284,6 +475,10 @@ class Runner:
                         if res is not None:
                             transcript.append((p["label"], res.text))
 
+                transcript = await self._maybe_compress_context(
+                    conv, transcript, rnd, round_start_idx, providers, parts,
+                )
+
                 if budget and self.total_tokens >= budget:
                     await self.emit("log",
                                     {"level": "warn", "message": f"Orçamento de {budget} tokens atingido."})
@@ -293,6 +488,7 @@ class Runner:
             if conv["config"].get("synthesize", True) and not self._stopped and await self._checkpoint():
                 synth_p = parts[0]
                 prov = providers[synth_p["pkey"]]
+                prov_kwargs = self._provider_kwargs(conv)
                 await self.emit("agent_step",
                                 {"participant": "synth", "kind": "status", "state": "thinking"})
                 deliver = ((conv.get("config") or {}).get("deliverable") or "").strip()
@@ -309,7 +505,7 @@ class Runner:
                 async def step(kind, payload):
                     await self.emit("agent_step", {"participant": "synth", "kind": kind, **payload})
 
-                res = await prov.run(system, user, [], step)
+                res = await prov.run(system, user, [], step, **prov_kwargs)
                 self.total_tokens += res.input_tokens + res.output_tokens
                 m = await store.save_message(self.conv_id, 0, "synth", "Síntese", "synthesis",
                                              res.text, {"model": prov.model})

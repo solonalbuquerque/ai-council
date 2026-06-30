@@ -42,7 +42,7 @@ async def _web_search(query: str, max_results: int = 5) -> str:
     return "RESULTADOS:\n" + "\n".join(out) if out else "Sem resultados (fallback DDG)."
 
 
-async def _web_fetch(url: str) -> str:
+async def _web_fetch(url: str, max_chars: int = 3000) -> str:
     async with httpx.AsyncClient(
         timeout=30, headers={"User-Agent": _UA}, follow_redirects=True
     ) as c:
@@ -52,7 +52,7 @@ async def _web_fetch(url: str) -> str:
     for t in soup(["script", "style", "noscript"]):
         t.extract()
     text = " ".join(soup.get_text(" ").split())
-    return text[:6000]
+    return text[:max(500, int(max_chars))]
 
 
 web_search_tool = Tool(

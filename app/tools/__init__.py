@@ -4,6 +4,23 @@ from app.tools.base import Tool
 from app.tools.web import web_fetch_tool, web_search_tool
 
 
+def filter_tools_for_participant(
+    tools: list[Tool], config: dict, pkey: str,
+) -> list[Tool]:
+    """Restringe ferramentas por participante quando config.tools_for está definido."""
+    tools_for = (config or {}).get("tools_for")
+    if not tools_for:
+        return tools
+    allowed = tools_for.get(pkey)
+    if allowed is None:
+        base = pkey.split(":", 1)[0] if ":" in pkey else pkey
+        allowed = tools_for.get(base)
+    if allowed is None:
+        return []
+    allowed_set = set(allowed)
+    return [t for t in tools if t.name in allowed_set]
+
+
 def build_tools(config: dict, mcp_tools: list[Tool] | None = None) -> list[Tool]:
     config = config or {}
     tools: list[Tool] = []

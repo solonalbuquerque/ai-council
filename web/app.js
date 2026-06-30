@@ -16,6 +16,10 @@ const state = {
   participants: [],   // da conversa aberta
   seenMsgIds: new Set(),
   scoreboard: {},
+  contextChars: 0,
+  contextMaxChars: 12000,
+  tokenBudget: 0,
+  totalTokensRun: 0,
   status: "idle",
   urlImport: null,
   trace: [],
@@ -229,16 +233,22 @@ async function openConversation(cid, opts = {}) {
   $("conv-view").style.display = "flex";
   if (!opts.skipUrl) setConversationUrl(cid, !!opts.replaceUrl);
   await loadConversations();
-  connectWS(cid);
+  connectWS(cid, { autoStart: !!opts.autoStart });
 }
 
-function connectWS(cid) {
+function connectWS(cid, opts = {}) {
   if (state.ws) { try { state.ws.close(); } catch (e) {} }
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/${cid}`);
   state.ws = ws;
   $("conn").innerHTML = "●&nbsp; conectando";
-  ws.onopen = () => { $("conn").innerHTML = "<b style='color:#19c39c'>●</b>&nbsp; conectado"; };
+  ws.onopen = () => {
+    $("conn").innerHTML = "<b style='color:#19c39c'>●</b>&nbsp; conectado";
+    if (opts.autoStart) {
+      setHumanFeedback("Iniciando debate…", "processing");
+      send({ action: "start" });
+    }
+  };
   ws.onclose = () => { $("conn").innerHTML = "●&nbsp; desconectado"; };
   ws.onmessage = (ev) => handleEvent(JSON.parse(ev.data));
 }
@@ -358,9 +368,26 @@ function handleEvent(msg) {
     case "status": setStatus(p.state); pushTraceEvent("status", p); break;
     case "round": updateBadge("round", `Rodada <b>${p.round}/${p.total}</b>`); pushTraceEvent("round", p); break;
     case "turn_start": pushTraceEvent("turn_start", p); break;
-    case "message": appendMessage(p); pushTraceEvent("message", p); break;
+    case "message":
+      appendMessage(p);
+      if (p.id && !state.messages.some((m) => m.id === p.id)) state.messages.push(p);
+      state.contextChars = estimateTranscriptChars(state.messages);
+      renderScoreboard();
+      pushTraceEvent("message", p);
+      break;
     case "agent_step": agentStep(p); pushTraceEvent("agent_step", p); break;
     case "scoreboard": state.scoreboard = p; renderScoreboard(); break;
+    case "context_size":
+      state.contextChars = p.chars || 0;
+      state.contextMaxChars = p.max_chars || state.contextMaxChars;
+      state.tokenBudget = p.token_budget ?? state.tokenBudget;
+      state.totalTokensRun = p.total_tokens || 0;
+      renderScoreboard();
+      break;
+    case "context_compressed":
+      logLine("info", `Contexto comprimido: ${nf(p.chars_before)} → ${nf(p.chars_after)} chars (rodada ${p.round})`);
+      pushTraceEvent("context_compressed", p);
+      break;
     case "log": logLine(p.level, p.message); pushTraceEvent("log", p); break;
     case "error": logLine("error", p.message); setStatus("error"); break;
     case "run_start": pushTraceEvent("run_start", p); break;
@@ -390,6 +417,12 @@ function pushTraceEvent(type, payload) {
 function renderSnapshot(c) {
   state.participants = c.participants || [];
   state.scoreboard = c.scoreboard || {};
+  state.contextMaxChars = c.config?.context_max_chars || 12000;
+  state.tokenBudget = c.token_budget || 0;
+  state.contextChars = estimateTranscriptChars(c.messages);
+  state.totalTokensRun = Object.values(c.scoreboard || {}).reduce(
+    (s, v) => s + (v.input_tokens || 0) + (v.output_tokens || 0), 0,
+  );
   state.trace = c.trace || [];
   state.messages = c.messages || [];
   state.hasPriorExecution = computeHasPriorExecution(c);
@@ -557,10 +590,29 @@ function renderScoreboard() {
   }
   const total = el("div", "score total");
   total.appendChild(el("div", "h", `<span class="nm">TOTAL</span>`));
+  const ctxPct = state.contextMaxChars
+    ? Math.min(100, Math.round((state.contextChars / state.contextMaxChars) * 100))
+    : 0;
+  const ctxBarColor = ctxPct >= 90 ? "var(--danger)" : ctxPct >= 70 ? "var(--warn)" : "var(--ok)";
+  const budgetLine = state.tokenBudget
+    ? `<div>orçamento <b>${nf(state.totalTokensRun)}</b> / ${nf(state.tokenBudget)}</div>`
+    : "";
   total.appendChild(el("div", "grid",
     `<div>entrada <b>${nf(tin)}</b></div><div>saída <b>${nf(tout)}</b></div>` +
-    `<div>gasto <b>${money(tcost)}</b></div><div>ferram. <b>${nf(ttools)}</b></div>`));
+    `<div>gasto <b>${money(tcost)}</b></div><div>ferram. <b>${nf(ttools)}</b></div>` +
+    `<div>contexto <b>~${nf(Math.round(state.contextChars / 4))}</b> tok</div>` +
+    budgetLine));
+  const ctxBar = el("div", "ctx-bar-wrap");
+  ctxBar.innerHTML =
+    `<div class="ctx-bar-label">Próximo prompt: ~${nf(state.contextChars)} chars (${ctxPct}% do limite)</div>` +
+    `<div class="ctx-bar"><div class="ctx-bar-fill" style="width:${ctxPct}%;background:${ctxBarColor}"></div></div>`;
+  total.appendChild(ctxBar);
   box.appendChild(total);
+}
+function estimateTranscriptChars(messages) {
+  return (messages || [])
+    .filter((m) => m.role === "participant" || m.role === "human" || m.role === "synthesis")
+    .reduce((s, m) => s + (m.speaker_label?.length || 0) + (m.content?.length || 0) + 4, 0);
 }
 function scoreCard(key, label, model, s) {
   const c = el("div", "score");
@@ -794,6 +846,7 @@ function buildConvAgentRows() {
       const card = chk.closest(".agent-conv-card");
       const pkey = box.querySelector(`.a-pkey[data-id="${chk.dataset.id}"]`)?.value || defaultPkey;
       if (card) card.style.setProperty("--accent", providerColor(pkey));
+      updateConvEstimate();
     });
   });
 
@@ -865,21 +918,85 @@ function collectAdhocParticipants() {
 }
 
 /* ---------------- modal ---------------- */
+function updateBudgetWarning() {
+  const w = $("budget-warn");
+  if (!w) return;
+  const budget = parseInt($("f-budget")?.value, 10);
+  w.style.display = !budget ? "block" : "none";
+}
+
+function buildToolsForConfig(agentParts, adhocParts, webEnabled) {
+  if (!webEnabled) return undefined;
+  const all = [...agentParts, ...adhocParts];
+  const researcher = all.find((p) => /pesquisador/i.test(p.label || ""));
+  if (!researcher) return undefined;
+  return { [researcher.pkey]: ["web_search", "web_fetch"] };
+}
+
+function updateConvEstimate() {
+  const box = $("conv-estimate");
+  const warn = $("conv-warn-dupes");
+  if (!box) return;
+  const agentParts = collectAgentParticipants();
+  const adhocParts = collectAdhocParticipants();
+  const all = [...agentParts, ...adhocParts];
+  const n = all.length;
+  const rounds = parseInt($("f-rounds")?.value, 10) || 3;
+  const turns = n * rounds;
+  box.textContent = n
+    ? `${n} participante(s) × ${rounds} rodada(s) = até ${turns} turnos de IA`
+    : "Selecione ao menos um participante.";
+  if (warn) {
+    const bases = all.map((p) => (p.pkey || "").split(":")[0]);
+    const seen = new Set();
+    const dupes = [];
+    for (const b of bases) {
+      if (seen.has(b)) dupes.push(b);
+      seen.add(b);
+    }
+    if (dupes.length) {
+      const labels = [...new Set(dupes)].map((b) => LABELS[b] || b).join(", ");
+      warn.style.display = "block";
+      warn.textContent =
+        `Provedor duplicado (${labels}) — cada turno consome tokens separadamente. Considere desativar participantes ad-hoc redundantes.`;
+    } else {
+      warn.style.display = "none";
+      warn.textContent = "";
+    }
+  }
+}
+
+function wireConvEstimateListeners() {
+  if (!wireConvEstimateListeners._wired) {
+    ["f-rounds", "f-budget", "f-context-max"].forEach((id) => {
+      $(id)?.addEventListener("input", () => {
+        updateConvEstimate();
+        updateBudgetWarning();
+      });
+    });
+    wireConvEstimateListeners._wired = true;
+  }
+  updateBudgetWarning();
+  updateConvEstimate();
+}
+
 function buildParticipantRows() {
   const box = $("participants"); box.innerHTML = "";
   const cat = state.catalog || {};
   const avail = state.available;
   if (!avail.length) { $("no-keys").style.display = "block"; }
+  const hasAgents = (state.agents || []).length > 0;
   for (const key of PROVIDER_ORDER) {
     if (!cat[key]) continue;
     const isAvail = avail.includes(key);
     const info = cat[key];
+    const checkAdhoc = isAvail && !hasAgents;
     const card = el("div", "pcard" + (isAvail ? "" : " off"));
     card.style.setProperty("--accent", COLORS[key] || "#888");
     const models = (info.models || []).map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
     card.innerHTML =
       `<div class="ph"><span class="dot"></span><span class="nm">${esc(info.label)}</span>` +
-      `<label class="chk" style="margin-left:auto"><input type="checkbox" class="p-active" data-key="${key}" ${isAvail ? "checked" : ""} ${isAvail ? "" : "disabled"} /> ativa</label></div>` +
+      `<label class="chk" style="margin-left:auto"><input type="checkbox" class="p-active" data-key="${key}" ${checkAdhoc ? "checked" : ""} ${isAvail ? "" : "disabled"} /> ativa</label></div>` +
       (isAvail ? "" : `<div class="note">Indisponível — <a href="/settings" style="color:var(--gemini)">configure o CLI</a> ou defina chave no .env.</div>`) +
       `<div class="pgrid">` +
       `<div><label class="note">Modelo</label><select class="p-model" data-key="${key}">${models}<option value="__custom__">customizado…</option></select>` +
@@ -896,10 +1013,16 @@ function buildParticipantRows() {
       custom.style.display = sel.value === "__custom__" ? "block" : "none";
     });
   });
+  box.querySelectorAll(".p-active").forEach((chk) => {
+    chk.addEventListener("change", updateConvEstimate);
+  });
+  updateConvEstimate();
 }
 
 function openModal() {
   buildConvAgentRows();
+  buildParticipantRows();
+  wireConvEstimateListeners();
   $("modal-bg").classList.add("open");
 }
 function closeModal() { $("modal-bg").classList.remove("open"); }
@@ -919,6 +1042,8 @@ async function createConversation() {
   const deliverable = $("f-deliverable").value.trim();
 
   const agentIds = agentParts.map((p) => p.agent_id).filter(Boolean);
+  const webEnabled = $("f-web").checked;
+  const toolsFor = buildToolsForConfig(agentParts, adhocParts, webEnabled);
   const payload = {
     title: PLACEHOLDER_TITLE,
     goal,
@@ -926,13 +1051,21 @@ async function createConversation() {
     max_rounds: parseInt($("f-rounds").value) || 3,
     token_budget: parseInt($("f-budget").value) || 0,
     config: {
-      web: $("f-web").checked,
+      web: webEnabled,
       apify: $("f-apify").checked,
       mcp: $("f-mcp").checked,
       synthesize: $("f-synth").checked,
+      compress_context: $("f-compress").checked,
+      context_max_chars: parseInt($("f-context-max").value) || 12000,
+      context_keep_last_round: true,
+      max_words_per_turn: 400,
+      max_output_tokens: 2000,
+      tool_result_max_chars: 4000,
+      web_fetch_max_chars: 3000,
       agent_ids: agentIds,
       stop_when: stopWhen,
       deliverable,
+      ...(toolsFor ? { tools_for: toolsFor } : {}),
     },
     participants: participants.map(({ agent_id, ...rest }) => rest),
   };
@@ -941,7 +1074,7 @@ async function createConversation() {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
     closeModal();
-    await openConversation(id, { replaceUrl: true });
+    await openConversation(id, { replaceUrl: true, autoStart: true });
     generateTitle(id, goal, participants);
   } catch (e) {
     alert("Erro ao criar conversa: " + e.message);
