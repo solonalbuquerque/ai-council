@@ -2,6 +2,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+**Read in:** English · [Português (BR)](README.pt-BR.md) · [Español](README.es.md) · [中文](README.zh-CN.md)
+
 **Put Claude, ChatGPT, Gemini, and DeepSeek in the same room — and watch them debate your problem in real time.**
 
 AI Council is a self-hosted **multi-agent control room**: several frontier models argue, refine ideas, call tools, and deliver a synthesis — while you observe live terminals, track costs per AI, and jump into the conversation whenever you want. No accounts, no cloud lock-in. Your machine, your keys, your data.
